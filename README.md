@@ -1,60 +1,98 @@
 # Termylo
 
-Private, personal PowerShell execution through MCP. Not a remote desktop product, not part of Axtario, and no paid relay is built into the software.
+**Your personal Windows PowerShell bridge for MCP clients.** No paid automation service, remote desktop, dashboard, browser, or subscription. Runs only while you start its MCP connection.
 
-## Features
+Termylo's workflow: **AI requests a command → you approve it in a Windows popup → Termylo runs it on your laptop → output and exit code return to the AI.** The server doesn't listen on a network port.
 
-- `termylo_status`: read-only check that the MCP server is online.
-- `execute_powershell`: accepts a single command and returns exit code, stdout and stderr.
-- Every command requires an APPROVE ONCE click in a Windows desktop dialog. No interactive UI means deny.
-- A fresh approval for every command; approval window expires after 60 seconds.
-- PowerShell starts without profiles or interactive stdin. Max command length 500, max execution timeout 120 seconds, output truncated to 16,000 characters.
-- MCP stdio transport, no public HTTP listener.
+## Tools
 
-**Security:** A command approved by the user has all the permissions of that Windows user. The approval dialog is not a sandbox. Commands may access private files or invoke network operations. The working directory is NOT a filesystem access restriction. Review every command and stop the connection when not needed.
+| Tool | What it does |
+|---|---|
+| `termylo_status` | Check whether local MCP agent responds. |
+| `execute_powershell(command, timeout_seconds)` | Submit **one** command, returning a job ID immediately. |
+| `powershell_result(job_id)` | Fetch result: stdout, stderr, exit code, truncation indicators. |
+| `cancel_powershell(job_id)` | Request cancellation and best-effort termination of PowerShell process tree. |
 
-## Windows setup (Python 3.12)
+The two-step request/result process prevents MCP timeouts while you read the approval window. Only one command can be active; finished results expire after 15 minutes.
 
-Clone the repo. Open ordinary (non-admin) PowerShell in the project folder and run `./scripts/setup.ps1`.
+## Security boundaries
 
-Or install manually:
+**Not a sandbox.** An approved PowerShell command runs with your Windows account privileges. It can access or change any files that the user can, launch programs, or contact remote services. Do not approve commands suggested by untrusted websites, repository text, or terminal output without inspection.
+
+- Each execution needs a local **APPROVE ONCE** click; DENY is default; popup expires after 60 seconds.
+- No unattended approval setting; no public HTTP endpoint.
+- Refuses to run in an elevated Administrator process.
+- Uses Windows PowerShell without profiles or interactive stdin; max command length 2,000 and execution timeout 120 seconds.
+- Captured stdout/stderr use bounded 32-KiB buffers each.
+- Child PowerShell environment strips most variables to avoid inheriting API keys.
+- If GUI unavailable, execution is denied. Stopping the tunnel disconnects the AI.
+- Working directory is **not a directory access restriction**. Cancellation and child-process termination are best-effort.
+- Command output can contain secrets; do not request private credentials or keys.
+
+## Windows installation
+
+Use a regular PowerShell session (NOT Run as Administrator). Clone this repo onto your laptop, then:
+
+```powershell
+.\scripts\setup.ps1
+```
+
+If scripts are blocked, run commands directly instead of weakening execution policy:
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe -m termylo.doctor
 ```
 
-Optional working directory for your project:
+The doctor is read-only: confirm `powershell_found`, `tkinter_found`, `mcp_sdk_found` and `workdir_exists` are true.
+
+Optional command starting directory (not a security sandbox):
 
 ```powershell
 $env:TERMYLO_WORKDIR = "$HOME\Axtario"
 ```
 
-Your MCP **stdio subprocess command** is the absolute path to `.venv\Scripts\python.exe` with arguments `-m termylo.server`. Do not directly run this as an interactive shell—it speaks MCP over stdin/stdout.
-
-## Connect to ChatGPT securely
-
-ChatGPT web cannot reach laptop localhost on its own. Prefer [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels): use an outbound-only local tunnel-client to launch Termylo's stdio MCP server. You will need the right Platform tunnel permissions, a tunnel ID, and a runtime API key; availability and any Platform billing are **not included** in ChatGPT Plus.
-
-1. Install and configure the [official tunnel-client](https://github.com/openai/tunnel-client). See `tunnel-client help quickstart`.
-2. Create a **stdio** tunnel profile that launches Termylo using the absolute venv Python path with `-m termylo.server`.
-3. Run `tunnel-client doctor`, then `tunnel-client run` using that profile.
-4. In ChatGPT web: Plugins -> Add custom MCP server -> Tunnel. Select the tunnel, configure it, install, and call `termylo_status` first.
-5. Then request `execute_powershell` with `Get-Date`; the command should only run after your Windows approval.
-
-This only creates the **local utility**. End-to-end ChatGPT invocation and the Windows approval popup have **not been tested** on the owner's laptop. Account-specific restrictions may block write-capable tools.
-
-### Run tests
+## Verification and simulation
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pytest
-.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pytest -v
+.\.venv\Scripts\python.exe scripts\simulate.py
 ```
 
-## Deliberately excluded
+CI tests Windows PowerShell execution, Unicode output, failure exit codes, truncation, timeouts, real MCP client/server stdio handshake and the simulated approved/denied/cancelled job lifecycle. Simulation never uses actual PowerShell or your personal files.
 
-No automated approvals, paid remote relay, dashboard, persistent service, cloud browser, file-management tools, or public HTTP command endpoint.
+## Connect to **normal ChatGPT**
+
+ChatGPT web cannot directly reach a laptop's `localhost`. Prefer the official [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) with the [open-source OpenAI tunnel-client](https://github.com/openai/tunnel-client) running on the laptop. It creates an **outbound-only** connection and launches Termylo over stdio; Termylo itself never opens a public server.
+
+**Access prerequisite:** Your ChatGPT workspace must permit a custom MCP plugin with a write-capable tool, and the Platform account must have an available Secure MCP Tunnel with **Tunnels Read + Use** plus a restricted runtime API key. Platform permissions/any costs are not automatically covered by ChatGPT Plus. These account-specific items cannot be validated from GitHub CI.
+
+1. Create or select a tunnel in [Platform Tunnels](https://platform.openai.com/settings/organization/tunnels), then obtain its tunnel ID and a restricted runtime key. Do not paste keys in ChatGPT, GitHub, logs or command arguments.
+2. Install the official Windows `tunnel-client`; inspect `tunnel-client help quickstart`.
+3. Initialize an stdio profile with the `sample_mcp_stdio_local` sample, pointing its command at the full path to `your-repo\.venv\Scripts\python.exe` plus `-m termylo.server`. Consult `tunnel-client init --help` for correct Windows quoting.
+4. Store runtime API credentials securely according to tunnel-client documentation. Run `tunnel-client doctor --profile termylo --explain` then `tunnel-client run --profile termylo`.
+5. In ChatGPT web: **Plugins → Add custom MCP server → Tunnel**, choose the tunnel and verify all four tools.
+6. Call `termylo_status`. Then request `execute_powershell(command="Write-Output 'Termylo connected'")`, click **APPROVE ONCE** on the laptop and call `powershell_result(job_id=...)`.
+
+Only one active `tunnel-client` instance should use an stdio tunnel ID, because each instance would have its own in-memory job state. If normal ChatGPT can't access write-capable custom MCP tools on your plan, do NOT publish an unauthenticated PowerShell command endpoint. A local MCP-capable development client remains a safe fallback.
+
+## Architecture
+
+```text
+Normal ChatGPT (or authorized MCP client)
+    <--> Secure MCP Tunnel (if supported and configured)
+Official tunnel-client on Windows (outbound connection)
+    <--> Termylo MCP process (stdio; no HTTP listener)
+    --> on-device confirmation: APPROVE ONCE or DENY
+    --> Windows PowerShell process, non-elevated
+    <-- bounded stdout + stderr + exit code
+    <-- powershell_result(job_id)
+```
+
+**Not yet verified:** The GUI dialog has not been exercised on your actual laptop; no live ChatGPT/Platform tunnel has been set up with your credentials. Do not describe this as fully deployed until those steps pass.
 
 ## License
 
-Private personal project. No license selected.
+Personal utility. No open-source license selected.
