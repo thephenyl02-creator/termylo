@@ -4,11 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "termylo"
-version = "0.1.0"
-description = "Personal approval-gated Windows PowerShell MCP utility"
+version = "0.2.0"
+description = "Personal, approval-gated Windows PowerShell MCP utility"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = ["mcp>=1.28,<2"]
 
+[project.scripts]
+termylo-mcp = "termylo.server:main"
+termylo-doctor = "termylo.doctor:main"
+
 [tool.setuptools.packages.find]
 include = ["termylo*"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
