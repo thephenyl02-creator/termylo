@@ -1,24 +1,35 @@
-name: Tests
+name: Verify Termylo
 on:
   push:
     branches: [main, feat/personal-powershell-mcp]
   pull_request:
+
+permissions:
+  contents: read
+
 jobs:
-  unit:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install Termylo
-        run: |
-          python -m pip install -e .
-          python -m pip install pytest
-      - name: Run tests
-        run: python -m pytest -q
-      - name: Import MCP server
-        run: python -c "from termylo.server import mcp; print('MCP import passed')"
+          python-version: ${{ matrix.python-version }}
+      - name: Install package and test dependencies
+        run: python -m pip install -e . pytest
+      - name: Compile Python source
+        run: python -m compileall -q termylo
+      - name: Unit tests + real MCP stdio handshake + Windows PowerShell integration
+        run: python -m pytest -v
+      - name: Two-way mock approval simulation
+        run: python scripts/simulate.py
+      - name: Termylo doctor (read-only)
+        run: python -m termylo.doctor
+      - name: Packaging metadata
+        run: python -m pip show termylo
