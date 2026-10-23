@@ -90,8 +90,8 @@ def test_windows_real_timeout(tmp_path, monkeypatch):
 
 def test_suppress_only_clixml_progress():
     from termylo.runner import _clean_stderr
-    payload = b'#< CLIXML\\r\\n<Objs xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress"><S>initializing</S></Obj></Objs>'
+    payload = b'#< CLIXML\r\n<Objs xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress"><S>initializing</S></Obj></Objs>'
     assert _clean_stderr(payload) == ""
-    error_payload = b'#< CLIXML\\n<Objs><Obj S="Error"><S>real failure</S></Obj></Objs>'
+    error_payload = b'#< CLIXML\n<Objs><Obj S="Error"><S>real failure</S></Obj></Objs>'
     assert "real failure" in _clean_stderr(error_payload)
     assert _clean_stderr(b"ordinary warning") == "ordinary warning"
