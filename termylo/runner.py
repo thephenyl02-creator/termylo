@@ -2,7 +2,6 @@
 from __future__ import annotations
 import base64
 import os
-import shutil
 import subprocess
 import threading
 import time
@@ -76,6 +75,15 @@ def _clean_stderr(data: bytes) -> str:
     return raw
 
 
+def _system_powershell() -> str | None:
+    """Use Windows' system PowerShell, not a same-named executable from PATH."""
+    root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
+    if not root:
+        return None
+    path = Path(root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    return str(path) if path.is_file() else None
+
+
 def run_command(
     command: str,
     timeout_seconds: int = 45,
@@ -118,9 +126,9 @@ def run_command(
     # It does NOT sanitize, restrict, or otherwise change the meaning of the command.
     utf8_command = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; " + command
     encoded = base64.b64encode(utf8_command.encode("utf-16le")).decode("ascii")
-    powershell = shutil.which("powershell.exe")
+    powershell = _system_powershell()
     if not powershell:
-        return {"status": "unavailable", "error": "powershell.exe was not found in PATH."}
+        return {"status": "unavailable", "error": "System PowerShell executable could not be verified."}
     args = [powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
     try:
         proc = subprocess.Popen(
