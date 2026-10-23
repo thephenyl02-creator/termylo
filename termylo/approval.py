@@ -1,32 +1,48 @@
-"""Desktop approval dialog. Denies commands when no interactive UI exists."""
+"""Owner-controlled Windows desktop permission prompt. No unattended bypass."""
 from __future__ import annotations
+import threading
 
-def ask_local_user(command: str) -> bool:
+def ask_local_user(command: str, cancel_event: threading.Event) -> bool:
     import tkinter as tk
     from tkinter.scrolledtext import ScrolledText
+
     root = tk.Tk()
-    root.title("Termylo — PowerShell command approval")
-    root.geometry("680x330")
-    root.minsize(540, 280)
+    root.title("Termylo: approve PowerShell command")
+    root.geometry("720x370")
+    root.minsize(570, 310)
     root.attributes("-topmost", True)
-    approved = {"value": False}
-    def finish(value: bool) -> None:
-        approved["value"] = value
+    accepted = False
+    closed = False
+
+    def close(value: bool = False) -> None:
+        nonlocal accepted, closed
+        if closed:
+            return
+        accepted, closed = value, True
         root.quit()
-    root.protocol("WM_DELETE_WINDOW", lambda: finish(False))
-    tk.Label(root, text="Approve this command on YOUR laptop?", font=("Segoe UI", 13, "bold")).pack(padx=16, pady=(16, 5))
-    tk.Label(root, text="PowerShell can read, change or delete files. Deny unexpected commands.", wraplength=635).pack(padx=16, pady=5)
-    box = ScrolledText(root, height=7, wrap="word", font=("Consolas", 10))
+
+    root.protocol("WM_DELETE_WINDOW", lambda: close(False))
+    tk.Label(root, text="Approve this exact PowerShell command?", font=("Segoe UI", 13, "bold")).pack(pady=(18, 6))
+    tk.Label(root, text="It will run with your Windows account permissions. Deny anything unexpected.", wraplength=650).pack(padx=12)
+    box = ScrolledText(root, height=9, wrap="word", font=("Consolas", 10))
     box.insert("1.0", command)
     box.configure(state="disabled")
-    box.pack(fill="both", expand=True, padx=16, pady=8)
+    box.pack(padx=18, pady=12, fill="both", expand=True)
     buttons = tk.Frame(root)
-    buttons.pack(pady=(0, 12))
-    tk.Button(buttons, text="DENY", width=14, command=lambda: finish(False)).pack(side="left", padx=10)
-    tk.Button(buttons, text="APPROVE ONCE", width=18, command=lambda: finish(True)).pack(side="left", padx=10)
-    root.after(60_000, lambda: finish(False))
+    buttons.pack(pady=(0, 16))
+    tk.Button(buttons, text="DENY", width=16, command=lambda: close(False)).pack(side="left", padx=10)
+    tk.Button(buttons, text="APPROVE ONCE", width=20, command=lambda: close(True)).pack(side="left", padx=10)
+
+    def watch_cancel() -> None:
+        if not closed and cancel_event.is_set():
+            close(False)
+        if not closed:
+            root.after(100, watch_cancel)
+
+    root.after(100, watch_cancel)
+    root.after(60_000, lambda: close(False))
     try:
         root.mainloop()
-        return approved["value"]
+        return accepted and not cancel_event.is_set()
     finally:
         root.destroy()
