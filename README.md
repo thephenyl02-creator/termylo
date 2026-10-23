@@ -28,6 +28,7 @@ The two-step request/result process prevents MCP timeouts while you read the app
 - If GUI unavailable, execution is denied. Stopping the tunnel disconnects the AI.
 - Working directory is **not a directory access restriction**. Cancellation and child-process termination are best-effort. Abruptly terminating Termylo or the tunnel does **not** guarantee any previously started child processes are stopped.
 - Command output can contain secrets; do not request private credentials or keys.
+- **Data sharing:** When used with ChatGPT, the command text and returned stdout/stderr necessarily pass through the connected MCP client and OpenAI-hosted tunnel. The command executes locally, but the request and its output are **not purely local**. Avoid commands that print credentials or confidential files.
 
 ## Windows installation
 
