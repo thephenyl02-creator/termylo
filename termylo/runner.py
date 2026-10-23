@@ -59,6 +59,23 @@ def _terminate_tree(proc: subprocess.Popen) -> None:
         except OSError:
             pass
 
+def _clean_stderr(data: bytes) -> str:
+    """Drop PowerShell's progress-only CLIXML when redirected, retaining actual errors."""
+    raw = data.decode("utf-8", errors="replace")
+    if not raw.startswith("#< CLIXML"):
+        return raw
+    try:
+        import xml.etree.ElementTree as ET
+        xml = raw.split("\n", 1)[1]
+        root = ET.fromstring(xml)
+        objects = list(root)
+        if objects and all(element.attrib.get("S") == "progress" for element in objects):
+            return ""
+    except (IndexError, ET.ParseError, ValueError):
+        pass
+    return raw
+
+
 def run_command(
     command: str,
     timeout_seconds: int = 45,
@@ -163,7 +180,7 @@ def run_command(
         return {
             "status": "completed", "exit_code": proc.returncode,
             "stdout": streams[0].decode("utf-8", errors="replace"),
-            "stderr": streams[1].decode("utf-8", errors="replace"),
+            "stderr": _clean_stderr(bytes(streams[1])),
             "stdout_truncated": overflow[0], "stderr_truncated": overflow[1],
         }
     finally:
