@@ -1,43 +1,88 @@
-import subprocess
-from unittest.mock import patch
-from termylo.runner import execute, validate
+"""Approval, environment, Windows real execution, unicode, truncation, timeouts."""
+from __future__ import annotations
+import os
+import threading
+import pytest
+from termylo.runner import MAX_TIMEOUT, MAX_OUTPUT_BYTES, run_command, validate
 
-def test_invalid_and_empty():
+def test_command_validation():
     assert validate("", 45)
+    assert validate("   ", 45)
+    assert validate(None, 45)
+    assert validate("Get-Date", False)
     assert validate("Get-Date", 0)
-    assert validate("Get-Date", 121)
-    assert validate("x" * 501, 30)
-    assert validate("Get-Date", True)
+    assert validate("Get-Date", MAX_TIMEOUT + 1)
+    assert validate("x" * 2001, 15)
+    assert validate("test\x00", 15)
+    assert validate("Get-Date", 30) is None
 
-def test_reject_on_nonwindows():
-    assert execute("Get-Date", windows=False)["status"] == "unavailable"
+def test_unsupported_os():
+    assert run_command("Get-Date", platform="posix")["status"] == "unavailable"
 
-def test_user_denies():
-    assert execute("Get-Date", approval=lambda _: False, windows=True)["status"] == "denied"
+def test_elevated_refused():
+    assert run_command("Get-Date", platform="nt", elevated=True)["status"] == "unavailable"
 
-def test_missing_gui_fails_closed():
-    def failure(_):
-        raise RuntimeError("No display")
-    assert execute("Get-Date", approval=failure, windows=True)["status"] == "denied"
+def test_denial_prevents_subprocess(monkeypatch):
+    import termylo.runner as runner
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not execute"))
+    assert run_command("Get-Date", platform="nt", elevated=False, approve=lambda c, e: False)["status"] == "denied"
 
-def test_success_and_output(monkeypatch, tmp_path):
-    monkeypatch.setenv("TERMYLO_WORKDIR", str(tmp_path))
-    completed = subprocess.CompletedProcess(args=["powershell.exe"], returncode=2, stdout="output", stderr="problem")
-    with patch("termylo.runner.subprocess.run", return_value=completed) as run:
-        result = execute("Get-Date", approval=lambda _: True, windows=True)
-    assert result["status"] == "completed"
-    assert result["exit_code"] == 2
-    assert result["stdout"] == "output"
-    assert result["stderr"] == "problem"
-    assert run.call_args.args[0][0] == "powershell.exe"
-    assert run.call_args.kwargs["stdin"] == subprocess.DEVNULL
-    assert run.call_args.kwargs.get("shell", False) is False
+def test_approval_exception_fails_closed(monkeypatch):
+    import termylo.runner as runner
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not execute"))
+    assert run_command("Get-Date", platform="nt", elevated=False, approve=lambda c, e: 1 / 0)["status"] == "denied"
 
-def test_timeout(monkeypatch, tmp_path):
-    monkeypatch.setenv("TERMYLO_WORKDIR", str(tmp_path))
-    with patch("termylo.runner.subprocess.run", side_effect=subprocess.TimeoutExpired("powershell.exe", 3)):
-        assert execute("Start-Sleep -Seconds 100", 3, approval=lambda _: True, windows=True)["status"] == "timeout"
+def test_cancel_before_approval(monkeypatch):
+    import termylo.runner as runner
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not execute"))
+    ev = threading.Event()
+    ev.set()
+    assert run_command("Get-Date", platform="nt", elevated=False, approve=lambda c, e: True, cancel_event=ev)["status"] == "cancelled"
 
-def test_bad_workdir(monkeypatch, tmp_path):
+def test_bad_cwd(monkeypatch, tmp_path):
     monkeypatch.setenv("TERMYLO_WORKDIR", str(tmp_path / "absent"))
-    assert execute("Get-Date", approval=lambda _: True, windows=True)["status"] == "rejected"
+    assert run_command("Get-Date", platform="nt", elevated=False, approve=lambda c, e: True)["status"] == "rejected"
+
+def test_missing_powershell(monkeypatch, tmp_path):
+    import termylo.runner as runner
+    monkeypatch.setenv("TERMYLO_WORKDIR", str(tmp_path))
+    monkeypatch.setattr(runner.shutil, "which", lambda executable: None)
+    assert run_command("Get-Date", platform="nt", elevated=False, approve=lambda c, e: True)["status"] == "unavailable"
+
+def test_no_api_key_in_child_environment(monkeypatch):
+    from termylo.runner import _environment
+    monkeypatch.setenv("OPENAI_API_KEY", "fake_test_value")
+    monkeypatch.setenv("TERMYLO_SECRET", "not_in_child")
+    assert "OPENAI_API_KEY" not in _environment()
+    assert "TERMYLO_SECRET" not in _environment()
+
+@pytest.mark.skipif(os.name != "nt", reason="Real Windows PowerShell required")
+def test_windows_real_execution_and_unicode(tmp_path, monkeypatch):
+    monkeypatch.setenv("TERMYLO_WORKDIR", str(tmp_path))
+    result = run_command("Write-Output 'Termylo OK – café'", platform="nt", elevated=False, approve=lambda c, e: True)
+    assert result["status"] == "completed", result
+    assert result["exit_code"] == 0
+    assert "Termylo OK – café" in result["stdout"]
+    assert result["stderr"] == ""
+
+@pytest.mark.skipif(os.name != "nt", reason="Real Windows PowerShell required")
+def test_windows_real_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("TERMYLO_WORKDIR", str(tmp_path))
+    result = run_command("Write-Error 'test failure'; exit 23", platform="nt", elevated=False, approve=lambda c, e: True)
+    assert result["status"] == "completed", result
+    assert result["exit_code"] == 23
+    assert "test failure" in result["stderr"]
+
+@pytest.mark.skipif(os.name != "nt", reason="Real Windows PowerShell required")
+def test_windows_large_output_bounded(tmp_path, monkeypatch):
+    monkeypatch.setenv("TERMYLO_WORKDIR", str(tmp_path))
+    result = run_command("'x' * 200000", platform="nt", elevated=False, approve=lambda c, e: True)
+    assert result["status"] == "completed", result
+    assert result["stdout_truncated"]
+    assert len(result["stdout"].encode("utf-8")) <= MAX_OUTPUT_BYTES
+
+@pytest.mark.skipif(os.name != "nt", reason="Real Windows PowerShell required")
+def test_windows_real_timeout(tmp_path, monkeypatch):
+    monkeypatch.setenv("TERMYLO_WORKDIR", str(tmp_path))
+    result = run_command("Start-Sleep -Seconds 7", timeout_seconds=1, platform="nt", elevated=False, approve=lambda c, e: True)
+    assert result["status"] == "timeout", result
