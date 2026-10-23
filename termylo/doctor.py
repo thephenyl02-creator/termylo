@@ -1,9 +1,9 @@
 """Read-only checks for Windows environment. Does not connect or execute commands."""
 from __future__ import annotations
 import os
-import shutil
 import sys
 from pathlib import Path
+from .runner import _system_powershell
 
 def report() -> dict:
     workdir = Path(os.getenv("TERMYLO_WORKDIR", str(Path.home()))).expanduser()
@@ -19,7 +19,7 @@ def report() -> dict:
         mcp_available = False
     return {
         "platform": sys.platform, "python": sys.version.split()[0],
-        "powershell_found": bool(shutil.which("powershell.exe")),
+        "powershell_found": bool(_system_powershell()),
         "tkinter_found": tkinter_available, "mcp_sdk_found": mcp_available,
         "workdir_exists": workdir.is_dir(), "workdir": str(workdir),
         "elevated_check": "Run from an ordinary non-administrator Windows account.",

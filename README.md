@@ -26,8 +26,9 @@ The two-step request/result process prevents MCP timeouts while you read the app
 - Captured stdout/stderr use bounded 32-KiB buffers each.
 - Child PowerShell environment strips most variables to avoid inheriting API keys.
 - If GUI unavailable, execution is denied. Stopping the tunnel disconnects the AI.
-- Working directory is **not a directory access restriction**. Cancellation and child-process termination are best-effort.
+- Working directory is **not a directory access restriction**. Cancellation and child-process termination are best-effort. Abruptly terminating Termylo or the tunnel does **not** guarantee any previously started child processes are stopped.
 - Command output can contain secrets; do not request private credentials or keys.
+- **Data sharing:** When used with ChatGPT, the command text and returned stdout/stderr necessarily pass through the connected MCP client and OpenAI-hosted tunnel. The command executes locally, but the request and its output are **not purely local**. Avoid commands that print credentials or confidential files.
 
 ## Windows installation
 
@@ -45,7 +46,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m termylo.doctor
 ```
 
-The doctor is read-only: confirm `powershell_found`, `tkinter_found`, `mcp_sdk_found` and `workdir_exists` are true.
+The setup script checks native command exit codes and fails on missing prerequisites. The doctor is read-only: confirm `powershell_found`, `tkinter_found`, `mcp_sdk_found` and `workdir_exists` are true. Importing `tkinter` does **not** prove an actual on-screen approval popup works.
 
 Optional command starting directory (not a security sandbox):
 
@@ -61,11 +62,21 @@ $env:TERMYLO_WORKDIR = "$HOME\Axtario"
 .\.venv\Scripts\python.exe scripts\simulate.py
 ```
 
-CI tests Windows PowerShell execution, Unicode output, failure exit codes, truncation, timeouts, real MCP client/server stdio handshake and the simulated approved/denied/cancelled job lifecycle. Simulation never uses actual PowerShell or your personal files.
+CI tests Windows PowerShell execution, Unicode output, failure exit codes, truncation, timeouts, real MCP client/server stdio handshake, mocked GUI approval/denial/timeout/cancellation, and the simulated command lifecycle. Simulation never uses actual PowerShell or your personal files.
+
+### Check the actual Windows approval popup (manual)
+
+Run this from a **normal, non-administrator Windows desktop session** only after setup:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manual_smoke.py
+```
+
+It will show a popup containing one harmless `Write-Output` command. Click **APPROVE ONCE** and confirm that the script reports PASS. This on-screen Windows test is **not** automated by headless GitHub CI.
 
 ## Connect to **normal ChatGPT**
 
-ChatGPT web cannot directly reach a laptop's `localhost`. Prefer the official [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) with the [open-source OpenAI tunnel-client](https://github.com/openai/tunnel-client) running on the laptop. It creates an **outbound-only** connection and launches Termylo over stdio; Termylo itself never opens a public server.
+ChatGPT web cannot directly reach a laptop's `localhost`. Prefer the official [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) with the [open-source OpenAI tunnel-client](https://github.com/openai/tunnel-client) running on the laptop. It creates an **outbound-only** connection and launches Termylo over stdio; Termylo itself never opens a public server. This uses an OpenAI-hosted relay/tunnel service; do not assume that its permissions, quotas or costs are included in ChatGPT Plus.
 
 **Access prerequisite:** Your ChatGPT workspace must permit a custom MCP plugin with a write-capable tool, and the Platform account must have an available Secure MCP Tunnel with **Tunnels Read + Use** plus a restricted runtime API key. Platform permissions/any costs are not automatically covered by ChatGPT Plus. These account-specific items cannot be validated from GitHub CI.
 
@@ -91,7 +102,7 @@ Official tunnel-client on Windows (outbound connection)
     <-- powershell_result(job_id)
 ```
 
-**Not yet verified:** The GUI dialog has not been exercised on your actual laptop; no live ChatGPT/Platform tunnel has been set up with your credentials. Do not describe this as fully deployed until those steps pass.
+**Not yet verified:** The GUI dialog has not been exercised on your actual laptop; no live ChatGPT/Platform tunnel has been set up with your credentials. CI cannot test either of these account- and device-specific requirements. Do not describe this as fully deployed until those steps pass.
 
 ## License
 

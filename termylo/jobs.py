@@ -53,7 +53,13 @@ class JobManager:
                 return {"status": "busy", "error": "Finish or cancel the previous command first."}
             job = Job(id=secrets.token_urlsafe(18))
             self._jobs[job.id] = job
-        threading.Thread(target=self._run, args=(job, command, timeout_seconds), daemon=True, name="termylo-job").start()
+        try:
+            threading.Thread(target=self._run, args=(job, command, timeout_seconds), daemon=True, name="termylo-job").start()
+        except (RuntimeError, OSError):
+            # Don't leave an unstartable job permanently blocking the only execution slot.
+            with self._lock:
+                self._jobs.pop(job.id, None)
+            return {"status": "error", "error": "Could not start the local command worker."}
         return {"status": "awaiting_approval", "job_id": job.id, "message": "Approve or deny the command in the Windows popup, then call powershell_result(job_id)."}
 
     def _run(self, job: Job, command: str, timeout_seconds: int) -> None:
@@ -61,9 +67,11 @@ class JobManager:
             result = self._runner(command, timeout_seconds, cancel_event=job.cancel)
         except Exception:
             result = {"status": "error", "error": "The local execution agent encountered an error."}
+        if not isinstance(result, dict) or result.get("status") not in TERMINAL:
+            result = {"status": "error", "error": "The local command worker returned an invalid result."}
         with self._lock:
             job.result = result
-            job.status = result.get("status", "error")
+            job.status = result["status"]
 
     def result(self, job_id: str) -> dict:
         with self._lock:

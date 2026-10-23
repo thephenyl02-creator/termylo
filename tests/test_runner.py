@@ -46,7 +46,7 @@ def test_bad_cwd(monkeypatch, tmp_path):
 def test_missing_powershell(monkeypatch, tmp_path):
     import termylo.runner as runner
     monkeypatch.setenv("TERMYLO_WORKDIR", str(tmp_path))
-    monkeypatch.setattr(runner.shutil, "which", lambda executable: None)
+    monkeypatch.setattr(runner, "_system_powershell", lambda: None)
     assert run_command("Get-Date", platform="nt", elevated=False, approve=lambda c, e: True)["status"] == "unavailable"
 
 def test_no_api_key_in_child_environment(monkeypatch):
@@ -95,3 +95,15 @@ def test_suppress_only_clixml_progress():
     error_payload = b'#< CLIXML\n<Objs><Obj S="Error"><S>real failure</S></Obj></Objs>'
     assert "real failure" in _clean_stderr(error_payload)
     assert _clean_stderr(b"ordinary warning") == "ordinary warning"
+
+
+def test_powershell_binary_is_resolved_from_systemroot_not_path(monkeypatch, tmp_path):
+    from termylo.runner import _system_powershell
+    system = tmp_path / "Windows"
+    candidate = system / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    candidate.parent.mkdir(parents=True)
+    candidate.write_bytes(b"fake-only-for-path-check")
+    monkeypatch.setenv("SystemRoot", str(system))
+    monkeypatch.setenv("WINDIR", str(system))
+    monkeypatch.setenv("PATH", str(tmp_path / "untrusted"))
+    assert _system_powershell() == str(candidate)
