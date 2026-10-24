@@ -316,6 +316,7 @@ class NativeSession:
                 self.close(sid, "Native command was " + reason + "; console revoked to stop execution.")
                 return {"status": reason, "error": "Native session ended because the command was " + reason + "."}
             if cancel_event.is_set():
+                self.close(sid, "Native command was cancelled; terminal authorization revoked.")
                 return {"status": "cancelled"}
             if failure or result is None:
                 self.close(sid, "PowerShell IPC failed or disconnected.")
