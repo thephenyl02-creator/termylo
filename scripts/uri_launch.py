@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         command = launcher_command(repo, windows_directory)
         startup = subprocess.STARTUPINFO()
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startup.wShowWindow = subprocess.SW_SHOWMINIMIZED
+        startup.wShowWindow = 2  # Win32 SW_SHOWMINIMIZED
         subprocess.Popen(
             command,
             cwd=str(repo),
