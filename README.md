@@ -151,12 +151,12 @@ ChatGPT's remote authorization expires after **20 minutes of MCP inactivity** or
 
 Local command history is **OFF by default**, lives in memory only and records up to **40 manual commands** with bounded output/errors. Type these directly in the native PowerShell window:
 
-- \`:history on\` — opt in to temporary history capture
-- \`:history status\`, \`:history show\` — inspect locally
-- \`:history clear\` — erase existing entries
-- \`:history off\` — stop capture **and erase** existing entries
+- `:history on` — opt in to temporary history capture
+- `:history status`, `:history show` — inspect locally
+- `:history clear` — erase existing entries
+- `:history off` — stop capture **and erase** existing entries
 
-Only when explicitly requested by the owner, ChatGPT may use \`execute_native_powershell\` to run \`Get-TermyloHistory -Last 10\`. Termylo does **not** automatically retrieve or upload history. Likely sensitive entries are withheld as a unit, but pattern detection is not comprehensive: **never type passwords, keys, or other sensitive material while history is on**. Switch history off first. No history file is written to disk. The old per-command approval tool remains unchanged.
+Only when explicitly requested by the owner, ChatGPT may use `execute_native_powershell` to run `Get-TermyloHistory -Last 10`. Termylo does **not** automatically retrieve or upload history. Likely sensitive entries are withheld as a unit, but pattern detection is not comprehensive: **never type passwords, keys, or other sensitive material while history is on**. Switch history off first. No history file is written to disk. The old per-command approval tool remains unchanged.
 
 ## Connect to **normal ChatGPT**
 
