@@ -8,7 +8,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-if ($env:OS -ne 'Windows_NT') { throw 'Windows DPAPI storage is required.' }
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'Windows DPAPI storage is required.' }
 
 $folder = Join-Path $env:APPDATA 'Termylo\secrets'
 $file = Join-Path $folder 'tunnel-key.dpapi'
@@ -60,7 +60,7 @@ switch ($Action) {
                 $acl = Get-Acl -LiteralPath $temp
                 $acl.SetAccessRuleProtection($true, $false)
                 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-                $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
                     $identity,
                     [System.Security.AccessControl.FileSystemRights]::FullControl,
                     [System.Security.AccessControl.AccessControlType]::Allow
