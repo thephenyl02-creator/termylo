@@ -100,16 +100,26 @@ def main() -> int:
             root.after(100, pump)
 
     def reader() -> None:
+        # Use unbuffered OS reads: a daemon blocked in sys.stdin.buffer at
+        # interpreter shutdown can abort Python due to its buffered I/O lock.
+        data = bytearray()
         try:
-            for raw_line in sys.stdin.buffer:
-                if len(raw_line) > 100_000:
+            while True:
+                chunk = os.read(0, 4096)
+                if not chunk:
                     break
-                try:
-                    message = json.loads(raw_line.decode("utf-8"))
-                    if isinstance(message, dict) and message.get("type") in ("command", "result"):
-                        entries.put(message)
-                except (ValueError, UnicodeError):
-                    continue
+                data.extend(chunk)
+                if len(data) > 100_000:
+                    break
+                while b"\\n" in data:
+                    raw_line, _, remainder = data.partition(b"\\n")
+                    data = bytearray(remainder)
+                    try:
+                        message = json.loads(raw_line.decode("utf-8"))
+                        if isinstance(message, dict) and message.get("type") in ("command", "result"):
+                            entries.put(message)
+                    except (ValueError, UnicodeError):
+                        continue
         except (OSError, ValueError):
             pass
         entries.put({"type": "disconnect"})
