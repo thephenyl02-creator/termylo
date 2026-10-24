@@ -37,14 +37,24 @@ jobs:
         run: |
           $tokens = $null
           $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/setup.ps1'), [ref]$tokens, [ref]$errors) | Out-Null
-          if ($errors.Count -gt 0) { throw "setup.ps1 contains PowerShell parser errors: $($errors | Out-String)" }
+          foreach ($path in @('scripts/setup.ps1', 'scripts/test-local.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $path), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { throw "$path contains PowerShell parser errors: $($errors | Out-String)" }
+          }
       - name: Run full Windows installation setup
         if: runner.os == 'Windows' && matrix.python-version == '3.12'
         shell: powershell
         run: |
           & .\scripts\setup.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Termylo setup returned a failing exit code.' }
+      - name: Verify one-command Windows testing (headless)
+        if: runner.os == 'Windows' && matrix.python-version == '3.12'
+        shell: powershell
+        run: |
+          & .\scripts\test-local.ps1 -SkipGui
+          if ($LASTEXITCODE -ne 0) { throw 'One-command local test failed.' }
       - name: Compile local scripts
         run: python -m compileall -q scripts
       - name: Packaging metadata
