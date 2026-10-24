@@ -57,7 +57,7 @@ def test_handler_cannot_run_any_url_input_as_shell_command(tmp_path):
     powershell.write_text("# dummy only")
     cmd = uri_launch.launcher_command(repo, windows)
     assert cmd[0] == str(powershell)
-    assert cmd[-1] == str(launcher)
+    assert cmd[-2:] == [str(launcher), "-Headless"]
     assert "-File" in cmd
     assert "termylo://start" not in " ".join(cmd)
     assert "cmd.exe" not in " ".join(cmd)
@@ -74,7 +74,10 @@ def test_real_windows_launch_arguments_never_include_untrusted_uri(monkeypatch):
     assert uri_launch.main(["termylo://start"]) == 0
     assert len(spawned) == 1
     cmd, opts = spawned[0]
-    assert cmd[-1].endswith("start-tunnel-secure.ps1")
+    assert cmd[-2].endswith("start-tunnel-secure.ps1")
+    assert cmd[-1] == "-Headless"
     assert "termylo://start" not in " ".join(cmd)
-    assert opts["creationflags"] & subprocess.CREATE_NEW_CONSOLE
-    assert opts["startupinfo"].wShowWindow == 2
+    assert opts["creationflags"] & subprocess.CREATE_NO_WINDOW
+    assert "startupinfo" not in opts
+    assert opts["stdout"] == subprocess.DEVNULL
+    assert opts["stderr"] == subprocess.DEVNULL
