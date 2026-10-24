@@ -2,7 +2,7 @@
 # This is a REAL powershell.exe console, not a Python/Tkinter display.
 # Only a random per-process local named pipe receives remote commands.
 # The foreground event loop also accepts commands typed into this window.
-# Not installed as an MCP tool until interactive Windows tests pass.
+# Native MCP tool. Keyboard access continues when remote approval expires.
 param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[A-Za-z0-9_-]{24,80}$')]
@@ -11,6 +11,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $script:TermyloRunning = $true
+$script:TermyloRemoteEnabled = $true
+# History is owner-opt-in, RAM-only and never automatically reported.
+$script:TermyloHistoryEnabled = $false
+$script:TermyloHistory = [System.Collections.Generic.List[object]]::new()
+$script:TermyloHistoryLimit = 40
 
 function Read-ExactBytes {
     param([System.IO.Stream]$Stream, [int]$Length)
@@ -26,6 +31,40 @@ function Read-ExactBytes {
 
 function Write-NativePrompt {
     [Console]::Write("PS " + (Get-Location).Path + "> ")
+}
+
+
+function Test-TermyloSensitive {
+    param([AllowEmptyString()][string]$Text)
+    # Conservative detection; it cannot recognize every possible secret.
+    $pattern = '(?i)(pass(word|phrase)?|secret|token|api[_ -]?key|credential|authorization|bearer|cookie|private[_ -]?key|securestring|read-host|ssh|env:|get-credential|otp|pin\b|sk-[a-z0-9_-]{8,}|-----BEGIN|[a-z0-9+/]{48,}={0,2})'
+    return [regex]::IsMatch($Text, $pattern)
+}
+
+function Save-TermyloHistory {
+    param([string]$Command, [string]$Output, [string]$ErrorText)
+    if (-not $script:TermyloHistoryEnabled) { return }
+    if (Test-TermyloSensitive ($Command + [Environment]::NewLine + $Output + [Environment]::NewLine + $ErrorText)) {
+        $Command = "[omitted: possible sensitive content]"
+        $Output = ""
+        $ErrorText = ""
+    }
+    $entry = [pscustomobject]@{
+        time_utc = [DateTime]::UtcNow.ToString("o")
+        command = $Command.Substring(0, [Math]::Min($Command.Length, 400))
+        stdout = $Output.Substring(0, [Math]::Min($Output.Length, 2000))
+        stderr = $ErrorText.Substring(0, [Math]::Min($ErrorText.Length, 1200))
+    }
+    $script:TermyloHistory.Add($entry)
+    while ($script:TermyloHistory.Count -gt $script:TermyloHistoryLimit) {
+        $script:TermyloHistory.RemoveAt(0)
+    }
+}
+
+function Get-TermyloHistory {
+    param([ValidateRange(1, 40)][int]$Last = 10)
+    if ($script:TermyloHistory.Count -eq 0) { return "No manually typed commands recorded." }
+    return ($script:TermyloHistory | Select-Object -Last $Last | Format-List | Out-String -Width 240)
 }
 
 function Write-NativeText {
@@ -47,13 +86,15 @@ try {
     $Host.UI.RawUI.WindowTitle = "Termylo - Real Windows PowerShell (close to revoke)"
     Write-Host "Termylo native PowerShell session" -ForegroundColor Cyan
     Write-Host "Type commands directly here, or request commands through ChatGPT." -ForegroundColor Gray
-    Write-Host "Closing this console revokes terminal access." -ForegroundColor Yellow
+    Write-Host "Remote access: 20 minutes idle / 40 minutes total. Local window remains open." -ForegroundColor Yellow
+    Write-Host "History commands: :history on | off | clear | show | status" -ForegroundColor Gray
+    Write-Host "History may contain secrets. Keep it OFF during sensitive work." -ForegroundColor Yellow
     Write-NativePrompt
     $typed = ""
 
     while ($script:TermyloRunning) {
         # Process ChatGPT commands only when no manual input is partially typed.
-        if (($typed.Length -eq 0) -and $pending.IsCompleted) {
+        if ($script:TermyloRemoteEnabled -and ($typed.Length -eq 0) -and $pending.IsCompleted) {
             try {
                 $pipe.EndWaitForConnection($pending)
                 $header = Read-ExactBytes -Stream $pipe -Length 4
@@ -70,28 +111,33 @@ try {
                 $output = ""
                 $errorText = ""
                 $exitCode = 0
-                try {
-                    # Executes in this script's persistent scope; Set-Location and
-                    # script-level variables carry over between requests.
-                    $oldErrorPreference = $ErrorActionPreference
-                    $ErrorActionPreference = "Continue"
-                    $Error.Clear()
-                    $global:LASTEXITCODE = 0
-                    $captured = Invoke-Expression $command *>&1 | Out-String -Width 240
-                    $output = [string]$captured
+                if ($command -ceq "__TERMYLO_REVOKE_IPC__") {
+                    $script:TermyloRemoteEnabled = $false
+                    $output = "ChatGPT remote access expired. This terminal is now LOCAL ONLY."
                     Write-NativeText $output
-                    if ($Error.Count -gt 0) {
+                } else {
+                    try {
+                        # Executes in this persistent shell scope.
+                        $oldErrorPreference = $ErrorActionPreference
+                        $ErrorActionPreference = "Continue"
+                        $Error.Clear()
+                        $global:LASTEXITCODE = 0
+                        $captured = Invoke-Expression $command *>&1 | Out-String -Width 240
+                        $output = [string]$captured
+                        Write-NativeText $output
+                        if ($Error.Count -gt 0) {
+                            $exitCode = 1
+                            $errorText = ($Error | Select-Object -First 3 | Out-String -Width 240)
+                        } elseif ($global:LASTEXITCODE -ne 0) {
+                            $exitCode = [int]$global:LASTEXITCODE
+                        }
+                    } catch {
                         $exitCode = 1
-                        $errorText = ($Error | Select-Object -First 3 | Out-String -Width 240)
-                    } elseif ($global:LASTEXITCODE -ne 0) {
-                        $exitCode = [int]$global:LASTEXITCODE
+                        $errorText = $_.ToString()
+                        [Console]::WriteLine("ERROR: " + $errorText)
+                    } finally {
+                        $ErrorActionPreference = $oldErrorPreference
                     }
-                } catch {
-                    $exitCode = 1
-                    $errorText = $_.ToString()
-                    [Console]::WriteLine("ERROR: " + $errorText)
-                } finally {
-                    $ErrorActionPreference = $oldErrorPreference
                 }
                 $response = @{
                     status = "completed"
@@ -110,11 +156,14 @@ try {
             } catch {
                 [Console]::WriteLine("Termylo IPC error: " + $_.Exception.Message)
             } finally {
-                if ($pipe.IsConnected) { $pipe.Disconnect() }
-                if ($script:TermyloRunning) {
+                if ($null -ne $pipe -and $pipe.IsConnected) { $pipe.Disconnect() }
+                if (-not $script:TermyloRemoteEnabled) {
+                    $pipe.Dispose()
+                    $pipe = $null
+                } elseif ($script:TermyloRunning) {
                     $pending = $pipe.BeginWaitForConnection($null, $null)
-                    Write-NativePrompt
                 }
+                if ($script:TermyloRunning) { Write-NativePrompt }
             }
             continue
         }
@@ -129,11 +178,71 @@ try {
                     $script:TermyloRunning = $false
                     break
                 }
-                if ($manual.Trim().Length -gt 0) {
-                    try {
-                        Invoke-Expression $manual *>&1 | Out-Host
-                    } catch {
-                        [Console]::WriteLine("ERROR: " + $_.ToString())
+                if ($manual.Trim() -match '^:history\s+(on|off|clear|show|status)
+            } elseif ($key.Key -eq [ConsoleKey]::Backspace) {
+                if ($typed.Length -gt 0) {
+                    $typed = $typed.Substring(0, $typed.Length - 1)
+                    [Console]::Write([char]8)
+                    [Console]::Write(" ")
+                    [Console]::Write([char]8)
+                }
+            } elseif ($key.Key -eq [ConsoleKey]::Escape) {
+                while ($typed.Length -gt 0) {
+                    $typed = $typed.Substring(0, $typed.Length - 1)
+                    [Console]::Write([char]8)
+                    [Console]::Write(" ")
+                    [Console]::Write([char]8)
+                }
+            } elseif ($key.KeyChar -ge [char]32) {
+                $typed += $key.KeyChar
+                [Console]::Write($key.KeyChar)
+            }
+        } else {
+            Start-Sleep -Milliseconds 40
+        }
+    }
+} catch {
+    Write-Host ("Termylo native console error: " + $_.Exception.Message) -ForegroundColor Red
+    Start-Sleep -Seconds 3
+} finally {
+    if ($null -ne $pipe) { $pipe.Dispose() }
+}
+) {
+                    $mode = $Matches[1].ToLowerInvariant()
+                    switch ($mode) {
+                        "on" {
+                            $script:TermyloHistoryEnabled = $true
+                            Write-Host "History ON (40 entries max, RAM only). May contain sensitive data." -ForegroundColor Yellow
+                        }
+                        "off" {
+                            $script:TermyloHistoryEnabled = $false
+                            $script:TermyloHistory.Clear()
+                            Write-Host "History OFF and CLEARED."
+                        }
+                        "clear" { $script:TermyloHistory.Clear(); Write-Host "History CLEARED." }
+                        "show" { Write-NativeText (Get-TermyloHistory -Last 10) }
+                        "status" {
+                            Write-Host ("History enabled: " + $script:TermyloHistoryEnabled + " | entries: " + $script:TermyloHistory.Count)
+                        }
+                    }
+                } elseif ($manual.Trim().Length -gt 0) {
+                    if ($script:TermyloHistoryEnabled) {
+                        $historyOutput = ""
+                        $historyError = ""
+                        try {
+                            $historyOutput = [string](Invoke-Expression $manual *>&1 | Out-String -Width 240)
+                            Write-NativeText $historyOutput
+                        } catch {
+                            $historyError = $_.ToString()
+                            [Console]::WriteLine("ERROR: " + $historyError)
+                        }
+                        Save-TermyloHistory -Command $manual -Output $historyOutput -ErrorText $historyError
+                    } else {
+                        try {
+                            Invoke-Expression $manual *>&1 | Out-Host
+                        } catch {
+                            [Console]::WriteLine("ERROR: " + $_.ToString())
+                        }
                     }
                 }
                 Write-NativePrompt
