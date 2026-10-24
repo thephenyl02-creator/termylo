@@ -158,6 +158,34 @@ Local command history is **OFF by default**, lives in memory only and records up
 
 Only when explicitly requested by the owner, ChatGPT may use `execute_native_powershell` to run `Get-TermyloHistory -Last 10`. Termylo does **not** automatically retrieve or upload history. Likely sensitive entries are withheld as a unit, but pattern detection is not comprehensive: **never type passwords, keys, or other sensitive material while history is on**. Switch history off first. No history file is written to disk. The old per-command approval tool remains unchanged.
 
+## Secure tunnel key storage on Windows
+
+Termylo's MCP server **does not need an API key itself**. The official Secure MCP Tunnel client uses a restricted \`CONTROL_PLANE_API_KEY\` to connect to the OpenAI control plane. Never put this key in GitHub, shell command-line arguments, a plaintext YAML profile, or PowerShell history.
+
+Once, in the **original Windows PowerShell terminal that already has the key in its environment**, run:
+
+```powershell
+cd "$HOME\termylo"
+.\scripts\tunnel-key.ps1 -Action Store -FromEnvironment
+```
+
+If that terminal no longer holds the key, the script instead prompts for it using hidden input (do **not** paste it into ChatGPT). The key is saved as a Windows DPAPI CurrentUser-encrypted file under \`%APPDATA%\Termylo\secrets\`, with a restricted file ACL. It can be decrypted only in the same Windows user context on the same machine (subject to Windows account/DPAPI security). Local malware with sufficient privileges remains a risk.
+
+Validate storage without exposing the key:
+
+```powershell
+.\scripts\tunnel-key.ps1 -Action Status
+.\scripts\start-tunnel-secure.ps1 -VerifyOnly
+```
+
+After stopping the previous tunnel process, restart it using:
+
+```powershell
+.\scripts\start-tunnel-secure.ps1
+```
+
+The launcher restores the credential into the child tunnel-client process environment only and keeps it out of console output. It intentionally refuses to start a duplicate Termylo tunnel for this profile. This startup is **manual**; nothing is added to Windows startup without the user's explicit request. To erase the locally encrypted credential, run \`.\scripts\tunnel-key.ps1 -Action Remove\`.
+
 ## Connect to **normal ChatGPT**
 
 ChatGPT web cannot directly reach a laptop's `localhost`. Prefer the official [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) with the [open-source OpenAI tunnel-client](https://github.com/openai/tunnel-client) running on the laptop. It creates an **outbound-only** connection and launches Termylo over stdio; Termylo itself never opens a public server. This uses an OpenAI-hosted relay/tunnel service; do not assume that its permissions, quotas or costs are included in ChatGPT Plus.
