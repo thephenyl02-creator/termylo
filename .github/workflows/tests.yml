@@ -5,7 +5,7 @@ on:
   pull_request:
 
 concurrency:
-  group: termylo-${{ github.workflow }}-${{ github.ref }}
+  group: termylo-v3-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
