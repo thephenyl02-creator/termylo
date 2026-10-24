@@ -127,25 +127,46 @@ def test_window_close_revokes_approval(monkeypatch):
 
 
 def test_expiry_is_enforced(monkeypatch):
-    _, terminal, _ = configure(monkeypatch)
+    _, terminal, calls = configure(monkeypatch)
     manager = native.NativeSession()
     manager.start()
     sid = get_state(manager, "active")["session_id"]
     with manager._lock:
         manager._last_activity -= native.IDLE_SECONDS + 1
     assert manager.validate(sid)["status"] == "unavailable"
-    assert terminal.stopped
-
-
+    assert not terminal.stopped  # local keyboard access survives remote expiry
+    assert "__TERMYLO_REVOKE_IPC__" in calls
+    
+    
 def test_absolute_max_enforced(monkeypatch):
-    _, terminal, _ = configure(monkeypatch)
+    _, terminal, calls = configure(monkeypatch)
     manager = native.NativeSession()
     manager.start()
     sid = get_state(manager, "active")["session_id"]
     with manager._lock:
         manager._opened_at -= native.MAX_SESSION_SECONDS + 1
     assert manager.validate(sid)["status"] == "unavailable"
+    assert not terminal.stopped
+    assert "__TERMYLO_REVOKE_IPC__" in calls
+
+
+def test_expiry_fails_closed_if_console_does_not_ack(monkeypatch):
+    _, terminal, _ = configure(monkeypatch)
+    manager = native.NativeSession()
+    manager.start()
+    sid = get_state(manager, "active")["session_id"]
+    def refusing_revoke(pipe, command, deadline, cancel_event):
+        raise RuntimeError("cannot detach pipe")
+    monkeypatch.setattr(native, "_native_exchange", refusing_revoke)
+    with manager._lock:
+        manager._last_activity -= native.IDLE_SECONDS + 1
+    assert manager.validate(sid)["status"] == "unavailable"
     assert terminal.stopped
+
+
+def test_remote_authorization_timeouts_are_20_and_40_minutes():
+    assert native.IDLE_SECONDS == 20 * 60
+    assert native.MAX_SESSION_SECONDS == 40 * 60
 
 
 def test_cancel_stops_whole_native_shell(monkeypatch):
