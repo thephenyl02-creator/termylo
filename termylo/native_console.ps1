@@ -178,36 +178,7 @@ try {
                     $script:TermyloRunning = $false
                     break
                 }
-                if ($manual.Trim() -match '^:history\s+(on|off|clear|show|status)
-            } elseif ($key.Key -eq [ConsoleKey]::Backspace) {
-                if ($typed.Length -gt 0) {
-                    $typed = $typed.Substring(0, $typed.Length - 1)
-                    [Console]::Write([char]8)
-                    [Console]::Write(" ")
-                    [Console]::Write([char]8)
-                }
-            } elseif ($key.Key -eq [ConsoleKey]::Escape) {
-                while ($typed.Length -gt 0) {
-                    $typed = $typed.Substring(0, $typed.Length - 1)
-                    [Console]::Write([char]8)
-                    [Console]::Write(" ")
-                    [Console]::Write([char]8)
-                }
-            } elseif ($key.KeyChar -ge [char]32) {
-                $typed += $key.KeyChar
-                [Console]::Write($key.KeyChar)
-            }
-        } else {
-            Start-Sleep -Milliseconds 40
-        }
-    }
-} catch {
-    Write-Host ("Termylo native console error: " + $_.Exception.Message) -ForegroundColor Red
-    Start-Sleep -Seconds 3
-} finally {
-    if ($null -ne $pipe) { $pipe.Dispose() }
-}
-) {
+                if ($manual.Trim() -match '^:history\s+(on|off|clear|show|status)$') {
                     $mode = $Matches[1].ToLowerInvariant()
                     switch ($mode) {
                         "on" {
