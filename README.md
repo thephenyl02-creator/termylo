@@ -38,9 +38,9 @@ The new visible-session flow is covered by simulated lifecycle, revocation and t
 
 **Not a sandbox.** An approved PowerShell command runs with your Windows account privileges. It can access or change any files that the user can, launch programs, or contact remote services. Do not approve commands suggested by untrusted websites, repository text, or terminal output without inspection.
 
-- Each execution needs a local **APPROVE ONCE** click; DENY is default; popup expires after 60 seconds.
+- The original one-command mode needs a local **APPROVE ONCE** click every time. The optional visible-session mode requires a separate **APPROVE SESSION** click, and then permits commands without more prompts until revocation or expiry.
 - **Tkinter runs in a separate, short-lived Windows process**, on that process's main thread. The MCP worker can wait for approval without owning or destroying Tcl objects. Closing the popup, process failure or cancellation denies execution.
-- No unattended approval setting; no public HTTP endpoint.
+- Session activation is never unattended, but subsequent commands within an approved session run without individual prompts. There is no public HTTP endpoint.
 - Refuses to run in an elevated Administrator process.
 - Uses Windows PowerShell without profiles or interactive stdin; max command length 2,000; default command timeout 90 seconds and maximum timeout 120 seconds.
 - Captured stdout/stderr use bounded 32-KiB buffers each.
@@ -134,7 +134,7 @@ ChatGPT web cannot directly reach a laptop's `localhost`. Prefer the official [S
 2. Install the official Windows `tunnel-client`; inspect `tunnel-client help quickstart`.
 3. Initialize an stdio profile with the `sample_mcp_stdio_local` sample, pointing its command at the full path to `your-repo\.venv\Scripts\python.exe` plus `-m termylo.server`. Consult `tunnel-client init --help` for correct Windows quoting.
 4. Store runtime API credentials securely according to tunnel-client documentation. Run `tunnel-client doctor --profile termylo --explain` then `tunnel-client run --profile termylo`.
-5. In ChatGPT web: **Plugins → Add custom MCP server → Tunnel**, choose the tunnel and verify all four tools.
+5. In ChatGPT web: **Plugins → Add custom MCP server → Tunnel**, choose the tunnel and verify all eight tools.
 6. Call `termylo_status`. Then request `execute_powershell(command="Write-Output 'Termylo connected'")`, click **APPROVE ONCE** on the laptop and call `powershell_result(job_id=...)`.
 
 Only one active `tunnel-client` instance should use an stdio tunnel ID, because each instance would have its own in-memory job state. If normal ChatGPT can't access write-capable custom MCP tools on your plan, do NOT publish an unauthenticated PowerShell command endpoint. A local MCP-capable development client remains a safe fallback.
