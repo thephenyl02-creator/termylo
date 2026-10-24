@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -59,3 +61,20 @@ def test_handler_cannot_run_any_url_input_as_shell_command(tmp_path):
     assert "-File" in cmd
     assert "termylo://start" not in " ".join(cmd)
     assert "cmd.exe" not in " ".join(cmd)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows STARTUPINFO requires Windows")
+def test_real_windows_launch_arguments_never_include_untrusted_uri(monkeypatch):
+    spawned = []
+    def fake_popen(cmd, **options):
+        spawned.append((cmd, options))
+        return object()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    assert uri_launch.main(["termylo://start"]) == 0
+    assert len(spawned) == 1
+    cmd, opts = spawned[0]
+    assert cmd[-1].endswith("start-tunnel-secure.ps1")
+    assert "termylo://start" not in " ".join(cmd)
+    assert opts["creationflags"] & subprocess.CREATE_NEW_CONSOLE
+    assert opts["startupinfo"].wShowWindow == 2
