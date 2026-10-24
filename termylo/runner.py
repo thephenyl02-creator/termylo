@@ -86,7 +86,7 @@ def _system_powershell() -> str | None:
 
 def run_command(
     command: str,
-    timeout_seconds: int = 45,
+    timeout_seconds: int = 90,
     *,
     approve: Callable[[str, threading.Event], bool] | None = None,
     cancel_event: threading.Event | None = None,
