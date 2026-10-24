@@ -41,7 +41,7 @@ class JobManager:
             active = next((j for j in self._jobs.values() if j.status not in TERMINAL), None)
             return {"name": "Termylo", "online": True, "windows": os.name == "nt", "active_job": active.id if active else None, "approval": "physical Windows approval for each command"}
 
-    def submit(self, command: str, timeout_seconds: int = 45) -> dict:
+    def submit(self, command: str, timeout_seconds: int = 90) -> dict:
         issue = validate(command, timeout_seconds)
         if issue:
             return {"status": "rejected", "error": issue}
