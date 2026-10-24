@@ -4,7 +4,7 @@
 param([switch]$VerifyOnly)
 
 $ErrorActionPreference = 'Stop'
-if ($env:OS -ne 'Windows_NT') { throw 'This launcher requires Windows.' }
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'This launcher requires Windows.' }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $client = Join-Path $root 'tunnel-client\tunnel-client.exe'
