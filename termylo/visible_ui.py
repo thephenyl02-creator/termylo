@@ -111,8 +111,8 @@ def main() -> int:
                 data.extend(chunk)
                 if len(data) > 100_000:
                     break
-                while b"\\n" in data:
-                    raw_line, _, remainder = data.partition(b"\\n")
+                while b"\n" in data:
+                    raw_line, _, remainder = data.partition(b"\n")
                     data = bytearray(remainder)
                     try:
                         message = json.loads(raw_line.decode("utf-8"))
