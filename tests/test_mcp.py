@@ -25,7 +25,7 @@ def test_real_stdio_mcp_handshake():
                 await session.initialize()
                 tools = await session.list_tools()
                 names = {tool.name for tool in tools.tools}
-                assert {"termylo_status", "execute_powershell", "powershell_result", "cancel_powershell", "open_visible_session", "visible_session_status", "execute_visible_powershell", "close_visible_session"} <= names
+                assert {"termylo_status", "execute_powershell", "powershell_result", "cancel_powershell", "open_visible_session", "visible_session_status", "execute_visible_powershell", "close_visible_session", "open_native_session", "native_session_status", "execute_native_powershell", "close_native_session"} <= names
                 status = extract_result(await session.call_tool("termylo_status"))
                 assert status["online"] is True
                 bad = extract_result(await session.call_tool("execute_powershell", {"command": "", "timeout_seconds": 10}))
@@ -34,4 +34,6 @@ def test_real_stdio_mcp_handshake():
                 assert unknown["status"] == "not_found"
                 denied = extract_result(await session.call_tool("execute_visible_powershell", {"session_id": "not-approved", "command": "Get-Date"}))
                 assert denied["status"] == "unavailable"
+                denied_native = extract_result(await session.call_tool("execute_native_powershell", {"session_id": "not-approved", "command": "Get-Date"}))
+                assert denied_native["status"] == "unavailable"
     asyncio.run(run())
