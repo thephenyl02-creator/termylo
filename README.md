@@ -158,6 +158,31 @@ Local command history is **OFF by default**, lives in memory only and records up
 
 Only when explicitly requested by the owner, ChatGPT may use `execute_native_powershell` to run `Get-TermyloHistory -Last 10`. Termylo does **not** automatically retrieve or upload history. Likely sensitive entries are withheld as a unit, but pattern detection is not comprehensive: **never type passwords, keys, or other sensitive material while history is on**. Switch history off first. No history file is written to disk. The old per-command approval tool remains unchanged.
 
+## One-click start from ChatGPT (Windows custom URI)
+
+A completely stopped tunnel **cannot receive MCP commands**, but Windows can launch a local app from a user-clicked `termylo://start` link. This is the *one-click* solution for Chrome: no manually running terminal or always-on service is required beforehand.
+
+**One-time install** (after the encrypted key is saved and `.venv` installed):
+
+```powershell
+cd "$HOME\termylo"
+git pull --ff-only origin main
+.\scripts\install-uri-protocol.ps1 -Action Install
+.\scripts\install-uri-protocol.ps1 -Action Status
+```
+
+Expected status: `TERMYLO_URI=READY`. This installs a **current-Windows-user-only** registry handler under `HKCU:\Software\Classes\termylo` (no Administrator prompt), pointing to the fixed Python windowless launcher `scripts\uri_launch.py`.
+
+**Start it with a user gesture**: click a `termylo://start` link (subject to ChatGPT/Chrome allowing custom-scheme links and browser permission prompts), or press **Win + R**, enter `termylo://start` and Enter as a reliable fallback. It opens a minimized PowerShell launcher that uses your DPAPI-encrypted key, then starts the existing tunnel. **Neither the link nor URL parameters grant arbitrary PowerShell execution.** After the tunnel reconnects, ChatGPT can call `open_native_session`, which still requires a physical approval popup.
+
+You can close all terminals before clicking the link. Closing the newly started tunnel window later will disconnect it again; click the link next time. This is on-demand, **not automatic startup**. The browser may require an external-application confirmation; that is expected. ChatGPT may also reject custom URL schemes; if so, use Win+R or a local Windows shortcut.
+
+**Security**: any website/application can *attempt* to open registered URI schemes. This handler accepts **only** `termylo://start` (optional trailing slash) and rejects every other URL, parameter and extra argument. It cannot run URL-supplied commands. The separate local MCP approval controls are unchanged. To uninstall the link handler:
+
+```powershell
+.\scripts\install-uri-protocol.ps1 -Action Remove
+```
+
 ## Secure tunnel key storage on Windows
 
 Termylo's MCP server **does not need an API key itself**. The official Secure MCP Tunnel client uses a restricted \`CONTROL_PLANE_API_KEY\` to connect to the OpenAI control plane. Never put this key in GitHub, shell command-line arguments, a plaintext YAML profile, or PowerShell history.
