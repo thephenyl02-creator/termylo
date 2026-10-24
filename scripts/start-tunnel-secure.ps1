@@ -1,7 +1,7 @@
 # Start Termylo Secure MCP Tunnel using per-user encrypted key.
 # Never include secrets on the command line or print them.
 [CmdletBinding()]
-param([switch]$VerifyOnly)
+param([switch]$VerifyOnly, [switch]$Headless)
 
 $ErrorActionPreference = 'Stop'
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'This launcher requires Windows.' }
@@ -43,13 +43,23 @@ try {
     $info.Arguments = 'run --profile termylo'
     $info.WorkingDirectory = $root
     $info.UseShellExecute = $false
-    $info.CreateNoWindow = $false
+    $info.CreateNoWindow = [bool]$Headless
     $info.EnvironmentVariables['CONTROL_PLANE_API_KEY'] = $clearText
     $proc = [System.Diagnostics.Process]::Start($info)
     $info.EnvironmentVariables.Remove('CONTROL_PLANE_API_KEY')
     $clearText = $null
     if ($null -eq $proc) { throw 'Tunnel client failed to start.' }
     Write-Output ('TUNNEL_LAUNCHER=STARTED_PID_' + $proc.Id)
+    if ($Headless) {
+        # The child owns the tunnel. No console or long-lived PowerShell host
+        # is required. Test for an immediate startup failure before returning.
+        Start-Sleep -Milliseconds 750
+        if ($proc.HasExited) {
+            throw ('Tunnel client exited immediately (exit code ' + $proc.ExitCode + ').')
+        }
+        Write-Output 'TUNNEL_LAUNCHER=HEADLESS_RUNNING'
+        return
+    }
     Write-Host 'Keep this terminal open while using Termylo. Ctrl+C to stop.'
     $proc.WaitForExit()
     Write-Output ('TUNNEL_EXIT_CODE=' + $proc.ExitCode)
