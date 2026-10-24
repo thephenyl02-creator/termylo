@@ -54,6 +54,36 @@ Optional command starting directory (not a security sandbox):
 $env:TERMYLO_WORKDIR = "$HOME\Axtario"
 ```
 
+## Test directly from `main` on your Windows laptop
+
+No ZIP or separate build artifact is needed. Install Git and Python 3.12, then open a **normal (non-administrator)** Windows PowerShell window.
+
+If you haven't cloned the repository:
+
+```powershell
+git clone https://github.com/thephenyl02-creator/termylo.git
+cd termylo
+```
+
+If your local Termylo folder already exists, open it and run:
+
+```powershell
+git switch main
+git pull --ff-only origin main
+```
+
+Now run the **single full local test command**:
+
+```powershell
+.\scripts\test-local.ps1
+```
+
+The script installs/checks the project, runs the complete automated tests, simulates request→approval→output, and finally displays a real desktop approval popup with the harmless `Write-Output 'Termylo GUI approval verified'` command. Review the text and click **APPROVE ONCE**. The final line must say `PASS: All selected Termylo verification steps succeeded.`
+
+A failed, missing or denied dialog is correctly reported as a failed/incomplete *acceptance test*; the script never grants permission automatically. If PowerShell blocks execution of local scripts, follow your organization's execution policy or manually run the commands under the next heading; do not silently disable security settings.
+
+**This verifies the local Windows path, not the ChatGPT tunnel.** Test the actual ChatGPT connection only after local acceptance and tunnel permission checks.
+
 ## Verification and simulation
 
 ```powershell
