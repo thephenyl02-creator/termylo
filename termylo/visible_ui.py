@@ -28,7 +28,7 @@ def _diagnostic(event: str) -> None:
         if log.exists() and log.stat().st_size > 32768:
             log.write_text("", encoding="utf-8")
         with log.open("a", encoding="utf-8") as sink:
-            sink.write(f"{datetime.now(timezone.utc).isoformat()} pid={os.getpid()} {event}\\n")
+            sink.write(f"{datetime.now(timezone.utc).isoformat()} pid={os.getpid()} {event}\n")
     except (OSError, ValueError):
         pass
 
