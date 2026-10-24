@@ -39,6 +39,22 @@ def test_cancel_before_approval(monkeypatch):
     ev.set()
     assert run_command("Get-Date", platform="nt", elevated=False, approve=lambda c, e: True, cancel_event=ev)["status"] == "cancelled"
 
+def test_session_revoked_during_prelaunch_never_spawns_process(monkeypatch, tmp_path):
+    import termylo.runner as runner
+    event = threading.Event()
+    monkeypatch.setenv("TERMYLO_WORKDIR", str(tmp_path))
+    def revoke_before_process():
+        event.set()
+        return "fake-powershell.exe"
+    monkeypatch.setattr(runner, "_system_powershell", revoke_before_process)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **kw: pytest.fail("revoked session must never execute"))
+    result = runner.run_command(
+        "Get-Date", platform="nt", elevated=False,
+        approve=lambda c, e: True, cancel_event=event,
+    )
+    assert result["status"] == "cancelled"
+
+
 def test_bad_cwd(monkeypatch, tmp_path):
     monkeypatch.setenv("TERMYLO_WORKDIR", str(tmp_path / "absent"))
     assert run_command("Get-Date", platform="nt", elevated=False, approve=lambda c, e: True)["status"] == "rejected"
