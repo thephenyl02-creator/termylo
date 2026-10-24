@@ -130,6 +130,10 @@ def run_command(
     if not powershell:
         return {"status": "unavailable", "error": "System PowerShell executable could not be verified."}
     args = [powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
+    # Approval can be revoked while arguments/workdir are prepared. Fail closed
+    # if a visible session expires or its owner closes the window before spawn.
+    if cancel_event.is_set():
+        return {"status": "cancelled"}
     try:
         proc = subprocess.Popen(
             args, cwd=str(working_directory), stdin=subprocess.DEVNULL,
