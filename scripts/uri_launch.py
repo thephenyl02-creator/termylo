@@ -27,7 +27,7 @@ def launcher_command(repo: Path, windows_directory: Path) -> list[str]:
         raise FileNotFoundError("Windows PowerShell was not found.")
     return [
         str(exe), "-NoLogo", "-NoProfile", "-NonInteractive",
-        "-ExecutionPolicy", "RemoteSigned", "-File", str(script),
+        "-ExecutionPolicy", "RemoteSigned", "-File", str(script), "-Headless",
     ]
 
 
@@ -43,15 +43,16 @@ def main(argv: list[str] | None = None) -> int:
     windows_directory = Path(os.environ.get("SystemRoot", r"C:\Windows"))
     try:
         command = launcher_command(repo, windows_directory)
-        startup = subprocess.STARTUPINFO()
-        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startup.wShowWindow = 2  # Win32 SW_SHOWMINIMIZED
+        # Launch without creating *any* visible PowerShell console.
+        # start-tunnel-secure.ps1 -Headless then creates a console-free tunnel
+        # process and exits, leaving no blank/blocked PowerShell host behind.
         subprocess.Popen(
             command,
             cwd=str(repo),
             stdin=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
-            startupinfo=startup,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW,
             close_fds=True,
         )
         return 0
