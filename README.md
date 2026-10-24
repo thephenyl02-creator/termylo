@@ -20,6 +20,7 @@ The two-step request/result process prevents MCP timeouts while you read the app
 **Not a sandbox.** An approved PowerShell command runs with your Windows account privileges. It can access or change any files that the user can, launch programs, or contact remote services. Do not approve commands suggested by untrusted websites, repository text, or terminal output without inspection.
 
 - Each execution needs a local **APPROVE ONCE** click; DENY is default; popup expires after 60 seconds.
+- **Tkinter runs in a separate, short-lived Windows process**, on that process's main thread. The MCP worker can wait for approval without owning or destroying Tcl objects. Closing the popup, process failure or cancellation denies execution.
 - No unattended approval setting; no public HTTP endpoint.
 - Refuses to run in an elevated Administrator process.
 - Uses Windows PowerShell without profiles or interactive stdin; max command length 2,000; default command timeout 90 seconds and maximum timeout 120 seconds.
@@ -78,7 +79,7 @@ Now run the **single full local test command**:
 .\scripts\test-local.ps1
 ```
 
-The script installs/checks the project, runs the complete automated tests, simulates request→approval→output, and finally displays a real desktop approval popup with the harmless `Write-Output 'Termylo GUI approval verified'` command. Review the text and click **APPROVE ONCE**. The final line must say `PASS: All selected Termylo verification steps succeeded.`
+The script installs/checks the project, runs the complete automated tests, simulates request→approval→output, and finally displays a real desktop approval popup launched in its own Python process with the harmless `Write-Output 'Termylo GUI approval verified'` command. Review the text and click **APPROVE ONCE**. The final line must say `PASS: All selected Termylo verification steps succeeded.`
 
 A failed, missing or denied dialog is correctly reported as a failed/incomplete *acceptance test*; the script never grants permission automatically. If PowerShell blocks execution of local scripts, follow your organization's execution policy or manually run the commands under the next heading; do not silently disable security settings.
 
@@ -92,7 +93,7 @@ A failed, missing or denied dialog is correctly reported as a failed/incomplete 
 .\.venv\Scripts\python.exe scripts\simulate.py
 ```
 
-CI tests Windows PowerShell execution, Unicode output, failure exit codes, truncation, timeouts, real MCP client/server stdio handshake, mocked GUI approval/denial/timeout/cancellation, and the simulated command lifecycle. Simulation never uses actual PowerShell or your personal files.
+CI tests Windows PowerShell execution, Unicode output, failure exit codes, truncation, timeouts, real MCP client/server stdio handshake, mocked GUI approval/denial/timeout/cancellation, and the simulated command lifecycle. CI also checks the subprocess approval protocol and rejects malformed or failed approval subprocesses. Simulation never uses actual PowerShell or your personal files.
 
 ### Check the actual Windows approval popup (manual)
 
@@ -132,7 +133,7 @@ Official tunnel-client on Windows (outbound connection)
     <-- powershell_result(job_id)
 ```
 
-**Not yet verified:** The GUI dialog has not been exercised on your actual laptop; no live ChatGPT/Platform tunnel has been set up with your credentials. CI cannot test either of these account- and device-specific requirements. Do not describe this as fully deployed until those steps pass.
+**Owner re-verification required:** The old Tkinter implementation crashed after successful approval on the user's laptop. The subprocess isolation fix has CI checks, but the corrected GUI must be retested on the laptop; no live ChatGPT/Platform tunnel has been set up with your credentials. CI cannot test either of these account- and device-specific requirements. Do not describe this as fully deployed until those steps pass.
 
 ## License
 
