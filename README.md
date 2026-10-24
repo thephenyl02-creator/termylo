@@ -2,7 +2,7 @@
 
 **Your personal Windows PowerShell bridge for MCP clients.** No paid automation service, remote desktop, dashboard, browser, or subscription. Runs only while you start its MCP connection.
 
-Termylo's workflow: **AI requests a command → you approve it in a Windows popup → Termylo runs it on your laptop → output and exit code return to the AI.** The server doesn't listen on a network port.
+Termylo's workflow: **AI requests a command → you approve it in a Windows popup → Termylo runs it on your laptop → output and exit code return to the AI.** The server doesn't listen on a network port. Normal execution requires approval for each command; a separate opt-in visible session supports short-lived window-level approval.
 
 ## Tools
 
@@ -12,8 +12,27 @@ Termylo's workflow: **AI requests a command → you approve it in a Windows popu
 | `execute_powershell(command, timeout_seconds)` | Submit **one** command, returning a job ID immediately. |
 | `powershell_result(job_id)` | Fetch result: stdout, stderr, exit code, truncation indicators. |
 | `cancel_powershell(job_id)` | Request cancellation and best-effort termination of PowerShell process tree. |
+| `open_visible_session` | Ask the laptop owner to grant time-limited approval for one visible window. |
+| `visible_session_status` | Check approval state, lifetime and active session ID. |
+| `execute_visible_powershell(session_id, command, timeout_seconds)` | Run command in a locally approved window **without individual popup**. |
+| `close_visible_session(session_id)` | Close window and revoke session approval. |
 
 The two-step request/result process prevents MCP timeouts while you read the approval window. Only one command can be active; finished results expire after 15 minutes.
+
+## Optional visible session (v0.3.0)
+
+**Default behavior has not changed:** `execute_powershell` requires local approval **for every command**.
+
+An optional **visible session** is designed for the user who explicitly wants to approve once for a window. This is substantially broader permission than approving one command; while active, ChatGPT can submit further PowerShell commands **without another local popup**, subject to its tool permissions. Do not approve a session while untrusted instructions are influencing the chat.
+
+1. In ChatGPT, explicitly request `open_visible_session`. A separate Termylo window opens on Windows.
+2. Read the full permission warning and click **APPROVE SESSION** (or DENY). Call `visible_session_status` to confirm that the session is active and obtain its `session_id`.
+3. Only for your intended tasks, call `execute_visible_powershell(session_id, command)` and fetch the output with `powershell_result(job_id)`. The window displays commands and results.
+4. **Close that window or call `close_visible_session(session_id)` to revoke.** Approval expires automatically after **10 minutes without commands** or **30 minutes total**, whichever comes first. Expiration/cancellation stops active commands on a best-effort basis.
+
+**Implementation boundary:** The persistent window is a terminal-style viewer, not an interactive PowerShell REPL. Each command still runs in a separate PowerShell process, and shell variables and current directory changes do **not** persist between commands. The session approval belongs to that single GUI window, not to every Termylo client or future window.
+
+The new visible-session flow is covered by simulated lifecycle, revocation and timeout tests. It is **not** physically verified until the owner pulls v0.3.0, restarts the tunnel and approves the new visible GUI. The previously verified per-command mode remains available throughout.
 
 ## Security boundaries
 
