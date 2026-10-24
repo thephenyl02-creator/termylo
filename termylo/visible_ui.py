@@ -53,15 +53,18 @@ def main() -> int:
     )
     details.pack(padx=18, pady=(0, 12), anchor="w")
 
+    # Keep approval controls ABOVE the expandable terminal: on high-DPI
+    # Windows displays the terminal's requested height can otherwise push
+    # the buttons below the visible window.
+    button_row = tk.Frame(root, bg="#101820")
+    button_row.pack(pady=(0, 12), padx=18, anchor="w")
+
     terminal = ScrolledText(
-        root, font=("Consolas", 11), bg="#071018", fg="#c7f9cc",
+        root, height=8, font=("Consolas", 11), bg="#071018", fg="#c7f9cc",
         insertbackground="#ffffff", relief="flat", borderwidth=8,
         state="disabled", wrap="word",
     )
     terminal.pack(padx=18, pady=(0, 12), fill="both", expand=True)
-
-    button_row = tk.Frame(root, bg="#101820")
-    button_row.pack(pady=(0, 18))
 
     entries: queue.Queue[dict] = queue.Queue()
     reader_thread: threading.Thread | None = None
