@@ -145,6 +145,19 @@ Run this from a **normal, non-administrator Windows desktop session** only after
 
 It will show a popup containing one harmless `Write-Output` command. Click **APPROVE ONCE** and confirm that the script reports PASS. This on-screen Windows test is **not** automated by headless GitHub CI.
 
+## Native terminal v0.4.1: local continuity and optional history
+
+ChatGPT's remote authorization expires after **20 minutes of MCP inactivity** or **40 minutes total**. On normal expiry, Termylo asks the console to dispose its local IPC pipe and **leaves the Windows PowerShell window open for local keyboard use**. A new ChatGPT session requires another physical approval and opens a **new console**, not a continuation of the former process. Explicit session closure, command cancellation/timeout, a disconnected pipe, or failure to acknowledge revocation may still terminate the window for safety.
+
+Local command history is **OFF by default**, lives in memory only and records up to **40 manual commands** with bounded output/errors. Type these directly in the native PowerShell window:
+
+- \`:history on\` — opt in to temporary history capture
+- \`:history status\`, \`:history show\` — inspect locally
+- \`:history clear\` — erase existing entries
+- \`:history off\` — stop capture **and erase** existing entries
+
+Only when explicitly requested by the owner, ChatGPT may use \`execute_native_powershell\` to run \`Get-TermyloHistory -Last 10\`. Termylo does **not** automatically retrieve or upload history. Likely sensitive entries are withheld as a unit, but pattern detection is not comprehensive: **never type passwords, keys, or other sensitive material while history is on**. Switch history off first. No history file is written to disk. The old per-command approval tool remains unchanged.
+
 ## Connect to **normal ChatGPT**
 
 ChatGPT web cannot directly reach a laptop's `localhost`. Prefer the official [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) with the [open-source OpenAI tunnel-client](https://github.com/openai/tunnel-client) running on the laptop. It creates an **outbound-only** connection and launches Termylo over stdio; Termylo itself never opens a public server. This uses an OpenAI-hosted relay/tunnel service; do not assume that its permissions, quotas or costs are included in ChatGPT Plus.
