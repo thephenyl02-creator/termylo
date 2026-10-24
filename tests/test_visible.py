@@ -58,8 +58,9 @@ def test_nonwindows_refuses_session(monkeypatch):
     assert visible.VisibleSession().start()["status"] == "unavailable"
 
 
-def test_explicit_approval_single_window_multiple_commands_and_close(monkeypatch):
-    proc = FakeProcess()
+@pytest.mark.parametrize("ack", [b"SESSION_APPROVED\n", b"SESSION_APPROVED\r\n"])
+def test_explicit_approval_single_window_multiple_commands_and_close(monkeypatch, ack):
+    proc = FakeProcess(ack)
     configure_windows(monkeypatch, proc)
     approvals = []
     def executor(command, timeout, cancel_event, approve):
@@ -122,8 +123,9 @@ def test_absolute_expiry_revokes_even_with_recent_activity(monkeypatch):
     assert proc.stopped
 
 
-def test_refused_window_does_not_grant_approval(monkeypatch):
-    proc = FakeProcess(b"SESSION_DENIED\n")
+@pytest.mark.parametrize("invalid_ack", [b"SESSION_DENIED\n", b"SESSION_APPROVED extra\n", b"SESSION_APPROVED\r"])
+def test_refused_window_does_not_grant_approval(monkeypatch, invalid_ack):
+    proc = FakeProcess(invalid_ack)
     configure_windows(monkeypatch, proc)
     session = visible.VisibleSession()
     opening = session.start()
