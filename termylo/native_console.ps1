@@ -35,7 +35,7 @@ function Write-NativeText {
 
 $pipe = $null
 try {
-    $pipe = New-Object System.IO.Pipes.NamedPipeServerStream(
+    $pipe = [System.IO.Pipes.NamedPipeServerStream]::new(
         $PipeName,
         [System.IO.Pipes.PipeDirection]::InOut,
         1,
