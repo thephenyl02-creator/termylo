@@ -12,17 +12,38 @@ import queue
 import sys
 import threading
 import tkinter as tk
+from datetime import datetime, timezone
+from pathlib import Path
 from tkinter.scrolledtext import ScrolledText
+
+def _diagnostic(event: str) -> None:
+    """Log only UI lifecycle events, NEVER commands, results or credentials.
+
+    Temporary diagnostics for the physical Windows approval regression.
+    """
+    try:
+        directory = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Termylo"
+        directory.mkdir(parents=True, exist_ok=True)
+        log = directory / "visible-session-diagnostic.log"
+        if log.exists() and log.stat().st_size > 32768:
+            log.write_text("", encoding="utf-8")
+        with log.open("a", encoding="utf-8") as sink:
+            sink.write(f"{datetime.now(timezone.utc).isoformat()} pid={os.getpid()} {event}\\n")
+    except (OSError, ValueError):
+        pass
 
 
 def main() -> int:
     if os.name != "nt" or threading.current_thread() is not threading.main_thread():
         return 1
 
+    _diagnostic("ui_child_started")
     try:
         root = tk.Tk()
     except Exception:
+        _diagnostic("tk_root_creation_failed")
         return 1
+    _diagnostic("tk_root_created")
 
     root.title("Termylo — approve visible PowerShell session")
     root.geometry("840x560")
@@ -81,6 +102,7 @@ def main() -> int:
         nonlocal closed
         if closed:
             return
+        _diagnostic("ui_revoke_called approved=" + str(approved))
         closed = True
         root.destroy()
 
@@ -110,6 +132,7 @@ def main() -> int:
             while True:
                 chunk = os.read(0, 4096)
                 if not chunk:
+                    _diagnostic("ui_stdin_eof")
                     break
                 data.extend(chunk)
                 if len(data) > 100_000:
@@ -124,13 +147,14 @@ def main() -> int:
                     except (ValueError, UnicodeError):
                         continue
         except (OSError, ValueError):
-            pass
+            _diagnostic("ui_stdin_read_error")
         entries.put({"type": "disconnect"})
 
     def approve() -> None:
         nonlocal approved, reader_thread
         if approved or closed:
             return
+        _diagnostic("ui_approve_clicked")
         approved = True
         heading.configure(text="TERMYLO — APPROVED VISIBLE SESSION", fg="#4ade80")
         root.title("Termylo — APPROVED session (close to revoke)")
@@ -149,8 +173,10 @@ def main() -> int:
             "Closing this window revokes the session.\n"
         )
         print("SESSION_APPROVED", flush=True)
+        _diagnostic("ui_ack_flushed")
         reader_thread = threading.Thread(target=reader, daemon=True, name="termylo-ui-input")
         reader_thread.start()
+        _diagnostic("ui_reader_started")
         root.after(100, pump)
 
     tk.Button(
@@ -164,9 +190,14 @@ def main() -> int:
 
     root.protocol("WM_DELETE_WINDOW", revoke)
     root.after(60_000, lambda: revoke() if not approved else None)
+    _diagnostic("ui_mainloop_started")
     try:
         root.mainloop()
+    except Exception:
+        _diagnostic("ui_mainloop_unexpected_exception")
+        raise
     finally:
+        _diagnostic("ui_mainloop_exited approved=" + str(approved))
         # All Tcl teardown takes place on the main thread of this child.
         if not closed:
             revoke()
