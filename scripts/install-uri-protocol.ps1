@@ -44,15 +44,14 @@ switch ($Action) {
             throw 'Python windowless executable not found. Set up .venv with Python 3.12 first.'
         }
         $existing = Get-RegisteredCommand
-        if ($existing -and $existing -cne $expected -and
-            $existing -notlike '*\termylo\scripts\uri_launch.py*') {
+        if ($existing -and $existing -cne $expected) {
             throw 'The termylo:// protocol is registered to another application. Refusing to overwrite.'
         }
         New-Item -Path $key -Force | Out-Null
-        (Get-Item $key).SetValue('', 'URL:Termylo Secure Tunnel Launcher')
+        Set-Item -LiteralPath $key -Value 'URL:Termylo Secure Tunnel Launcher'
         New-ItemProperty -Path $key -Name 'URL Protocol' -PropertyType String -Value '' -Force | Out-Null
         New-Item -Path $commandKey -Force | Out-Null
-        (Get-Item $commandKey).SetValue('', $expected)
+        Set-Item -LiteralPath $commandKey -Value $expected
         if ((Get-RegisteredCommand) -cne $expected) {
             throw 'Protocol registration did not verify.'
         }
