@@ -41,7 +41,7 @@ jobs:
         run: |
           $tokens = $null
           $errors = $null
-          foreach ($path in @('scripts/setup.ps1', 'scripts/test-local.ps1', 'termylo/native_console.ps1', 'scripts/tunnel-key.ps1', 'scripts/start-tunnel-secure.ps1', 'scripts/test-secure-tunnel-key.ps1')) {
+          foreach ($path in @('scripts/setup.ps1', 'scripts/test-local.ps1', 'termylo/native_console.ps1', 'scripts/tunnel-key.ps1', 'scripts/start-tunnel-secure.ps1', 'scripts/test-secure-tunnel-key.ps1', 'scripts/install-uri-protocol.ps1', 'scripts/test-uri-protocol.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $path), [ref]$tokens, [ref]$errors) | Out-Null
@@ -59,6 +59,12 @@ jobs:
         run: |
           & .\scripts\setup.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Termylo setup returned a failing exit code.' }
+      - name: Test per-user URI registration (no tunnel launch)
+        if: runner.os == 'Windows' && matrix.python-version == '3.12'
+        shell: powershell
+        run: |
+          & .\scripts\test-uri-protocol.ps1
+
       - name: Verify one-command Windows testing (headless)
         if: runner.os == 'Windows' && matrix.python-version == '3.12'
         shell: powershell
