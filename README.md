@@ -22,7 +22,7 @@ The two-step request/result process prevents MCP timeouts while you read the app
 - Each execution needs a local **APPROVE ONCE** click; DENY is default; popup expires after 60 seconds.
 - No unattended approval setting; no public HTTP endpoint.
 - Refuses to run in an elevated Administrator process.
-- Uses Windows PowerShell without profiles or interactive stdin; max command length 2,000 and execution timeout 120 seconds.
+- Uses Windows PowerShell without profiles or interactive stdin; max command length 2,000; default command timeout 90 seconds and maximum timeout 120 seconds.
 - Captured stdout/stderr use bounded 32-KiB buffers each.
 - Child PowerShell environment strips most variables to avoid inheriting API keys.
 - If GUI unavailable, execution is denied. Stopping the tunnel disconnects the AI.
