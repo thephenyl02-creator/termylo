@@ -22,13 +22,13 @@ def main() -> int:
 
     manager = JobManager()
     print("Review the on-screen Termylo popup and click APPROVE ONCE for the harmless command.", flush=True)
-    submitted = manager.submit(COMMAND, timeout_seconds=15)
+    submitted = manager.submit(COMMAND, timeout_seconds=60)
     if submitted.get("status") != "awaiting_approval":
         print(json.dumps(submitted, ensure_ascii=False, indent=2))
         return 1
 
     job_id = submitted["job_id"]
-    deadline = time.monotonic() + 90  # 60s approval + 15s command + margin
+    deadline = time.monotonic() + 150  # 60s approval + 60s command + margin
     result = {"status": "not_finished"}
     while time.monotonic() < deadline:
         result = manager.result(job_id)
