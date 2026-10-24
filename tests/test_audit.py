@@ -49,11 +49,12 @@ class FakeWindow:
         self.action, self.cancel = action, cancel
         self.buttons, self.scheduled = {}, []
         self.closed = False
+        self.on_close = None
     def title(self, *a): pass
     def geometry(self, *a): pass
     def minsize(self, *a): pass
     def attributes(self, *a): pass
-    def protocol(self, *a): pass
+    def protocol(self, event, cb): self.on_close = cb
     def after(self, ms, cb): self.scheduled.append((ms, cb))
     def quit(self): self.closed = True
     def destroy(self): pass
@@ -65,13 +66,12 @@ class FakeWindow:
         elif self.action == "timeout":
             next(cb for ms, cb in self.scheduled if ms == 60000)()
         else:
-            self.cancel.set()
-            next(cb for ms, cb in self.scheduled if ms == 100)()
+            self.on_close()
         assert self.closed
 
 @pytest.mark.parametrize("action,approved", [("approve", True), ("deny", False), ("timeout", False), ("cancel", False)])
 def test_gui_approval_denial_timeout_and_cancel(monkeypatch, action, approved):
-    from termylo.approval import ask_local_user
+    from termylo.approval import _show_dialog
     event = threading.Event()
     root = FakeWindow(action, event)
     class Widget:
@@ -90,4 +90,4 @@ def test_gui_approval_denial_timeout_and_cancel(monkeypatch, action, approved):
     submodule.ScrolledText = Widget
     monkeypatch.setitem(sys.modules, "tkinter", module)
     monkeypatch.setitem(sys.modules, "tkinter.scrolledtext", submodule)
-    assert ask_local_user("Write-Output 'test'", event) is approved
+    assert _show_dialog("Write-Output 'test'") is approved
