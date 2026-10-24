@@ -20,8 +20,8 @@ from pathlib import Path
 
 from .runner import _environment, _is_admin, _system_powershell, _terminate_tree, validate
 
-IDLE_SECONDS = 600
-MAX_SESSION_SECONDS = 1800
+IDLE_SECONDS = 1200
+MAX_SESSION_SECONDS = 2400
 APPROVAL_SECONDS = 60
 MAX_REPLY_BYTES = 100_000
 
@@ -89,9 +89,9 @@ class NativeSession:
             return "The native PowerShell console was closed."
         now = time.monotonic()
         if now - self._opened_at >= MAX_SESSION_SECONDS:
-            return "Native PowerShell session reached its 30-minute maximum."
+            return "Remote approval reached its 40-minute maximum."
         if now - self._last_activity >= IDLE_SECONDS:
-            return "Native PowerShell session was inactive for 10 minutes."
+            return "Remote approval was inactive for 20 minutes."
         return None
 
     def _close_locked(self, reason: str) -> list[subprocess.Popen]:
@@ -114,12 +114,38 @@ class NativeSession:
                 _terminate_tree(proc)
 
     def _check(self) -> None:
+        """Expire remote authority without automatically closing the owner's console.
+
+        The native console must ACK the local-only transition and dispose its
+        named pipe. If it cannot, fail closed by terminating the console.
+        An in-flight command is also terminated rather than left uncontrolled.
+        """
         processes = []
+        detached = None
         with self._lock:
             reason = self._expire_reason()
             if reason is not None:
-                processes = self._close_locked(reason)
+                expired = reason.startswith("Remote approval")
+                console = self._console_proc
+                if (expired and self._command_cancel is None and
+                        self._pipe_name and console is not None and console.poll() is None):
+                    detached = (self._pipe_name, console)
+                    self._close_locked(reason + " Remote access revoked; local PowerShell remains open.")
+                else:
+                    processes = self._close_locked(reason)
         self._stop(processes)
+        if detached is not None:
+            pipe, console = detached
+            try:
+                result = _native_exchange(
+                    pipe, "__TERMYLO_REVOKE_IPC__",
+                    time.monotonic() + 3, threading.Event(),
+                )
+                if result.get("exit_code") != 0:
+                    raise RuntimeError("Native console did not acknowledge revocation.")
+            except Exception:
+                # Do not leave a remotely reachable named pipe behind.
+                self._stop([console])
 
     def status(self) -> dict:
         self._check()
