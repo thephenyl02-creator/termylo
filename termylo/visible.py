@@ -167,7 +167,7 @@ class VisibleSession:
                 if self._session_id != sid or self._state != "opening":
                     break
 
-        approved = ready.is_set() and ack == [b"SESSION_APPROVED\n"] and proc.poll() is None
+        # Python text stdout on Windows may translate newline to CRLF.\n        # Match only the exact one-line consent token with either line ending.\n        approved = (\n            ready.is_set()\n            and len(ack) == 1\n            and ack[0] in (b"SESSION_APPROVED\n", b"SESSION_APPROVED\r\n")\n            and proc.poll() is None\n        )
         stop = None
         with self._lock:
             if self._session_id != sid or self._state != "opening":
