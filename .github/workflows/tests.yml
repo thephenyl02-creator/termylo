@@ -1,7 +1,7 @@
 name: Verify Termylo
 on:
   push:
-    branches: [main, feat/personal-powershell-mcp]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -49,3 +49,38 @@ jobs:
         run: python -m compileall -q scripts
       - name: Packaging metadata
         run: python -m pip show termylo
+
+  cleanup_merged_branches:
+    name: Remove merged branches, keep main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Delete only the two previously merged development branches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const completed = [
+              {number: 1, branch: 'feat/personal-powershell-mcp'},
+              {number: 2, branch: 'audit/v02-line-by-line'},
+            ];
+            for (const {number, branch} of completed) {
+              const {data: pr} = await github.rest.pulls.get({owner, repo, pull_number: number});
+              if (!pr.merged_at || pr.head.ref !== branch) {
+                throw new Error('Refusing to delete an unmerged or mismatched branch: ' + branch);
+              }
+              try {
+                await github.rest.git.deleteRef({owner, repo, ref: 'heads/' + branch});
+                core.info('Deleted merged branch ' + branch);
+              } catch (error) {
+                if (error.status === 404 || error.status === 422 && /does not exist/i.test(error.message)) {
+                  core.info('Already absent: ' + branch);
+                } else {
+                  throw error;
+                }
+              }
+            }
