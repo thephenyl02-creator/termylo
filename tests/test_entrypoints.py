@@ -48,7 +48,8 @@ def test_default_timeout_is_consistent_across_mcp_queue_and_runner():
 
 def test_manual_smoke_exercises_job_submission_and_result(monkeypatch, capsys):
     from scripts import manual_smoke
-    monkeypatch.setattr(manual_smoke.os, "name", "nt")
+    from types import SimpleNamespace
+    monkeypatch.setattr(manual_smoke, "os", SimpleNamespace(name="nt"))
 
     class FakeManager:
         def submit(self, command, timeout_seconds):
@@ -67,7 +68,8 @@ def test_manual_smoke_exercises_job_submission_and_result(monkeypatch, capsys):
 
 def test_manual_smoke_reports_denial_without_false_success(monkeypatch, capsys):
     from scripts import manual_smoke
-    monkeypatch.setattr(manual_smoke.os, "name", "nt")
+    from types import SimpleNamespace
+    monkeypatch.setattr(manual_smoke, "os", SimpleNamespace(name="nt"))
 
     class FakeManager:
         def submit(self, command, timeout_seconds):
