@@ -37,7 +37,7 @@ try {
 
     # Put the key in the CHILD process environment only. No global/user
     # environment variable, plaintext file, argument, or log entry.
-    $clearText = (New-Object System.Net.NetworkCredential('', $secret)).Password
+    $clearText = ([System.Net.NetworkCredential]::new('', $secret)).Password
     $info = New-Object System.Diagnostics.ProcessStartInfo
     $info.FileName = $client
     $info.Arguments = 'run --profile termylo'
