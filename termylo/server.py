@@ -24,7 +24,7 @@ visible = VisibleSession()
 @mcp.tool()
 def termylo_status() -> dict:
     """Read-only health check of the owner's Windows command bridge."""
-    return {**jobs.status(), "visible_session": visible.status()}
+    return jobs.status()
 
 @mcp.tool()
 def execute_powershell(command: str, timeout_seconds: int = 90) -> dict:
