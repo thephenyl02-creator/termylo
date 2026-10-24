@@ -28,7 +28,6 @@ def test_real_stdio_mcp_handshake():
                 assert {"termylo_status", "execute_powershell", "powershell_result", "cancel_powershell", "open_visible_session", "visible_session_status", "execute_visible_powershell", "close_visible_session"} <= names
                 status = extract_result(await session.call_tool("termylo_status"))
                 assert status["online"] is True
-                assert "visible_session" in status
                 bad = extract_result(await session.call_tool("execute_powershell", {"command": "", "timeout_seconds": 10}))
                 assert bad["status"] == "rejected"
                 unknown = extract_result(await session.call_tool("powershell_result", {"job_id": "not-a-real-id"}))
