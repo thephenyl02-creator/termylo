@@ -26,7 +26,7 @@ try {
     $disk = [System.IO.File]::ReadAllText($path)
     if ($disk -match 'TEST_ONLY_DUMMY' -or $disk.Length -lt 100) { throw 'Unencrypted key detected' }
     $ready = & $launchScript -VerifyOnly
-    if ($ready -notmatch 'TUNNEL_LAUNCHER=READY') { throw 'Secure startup readiness failed' }
+    if (($ready -join [Environment]::NewLine) -notmatch 'TUNNEL_LAUNCHER=READY') { throw 'Secure startup readiness failed' }
     $removed = & $keyScript -Action Remove
     if ($removed -notmatch 'REMOVED' -or (Test-Path $path)) { throw 'Key deletion failed' }
     Write-Output 'PASS: DPAPI encrypted key, secure launcher readiness, and key removal.'
