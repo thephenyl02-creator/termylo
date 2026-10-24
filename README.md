@@ -16,8 +16,29 @@ Termylo's workflow: **AI requests a command → you approve it in a Windows popu
 | `visible_session_status` | Check approval state, lifetime and active session ID. |
 | `execute_visible_powershell(session_id, command, timeout_seconds)` | Run command in a locally approved window **without individual popup**. |
 | `close_visible_session(session_id)` | Close window and revoke session approval. |
+| `open_native_session` | Request local approval, then open a real native Windows PowerShell console. |
+| `native_session_status` | Inspect the native console state and its session ID. |
+| `execute_native_powershell(session_id, command, timeout_seconds)` | Run commands in the same PowerShell process, preserving variables and working directory. |
+| `close_native_session(session_id)` | Revoke the session and close the console. |
 
 The two-step request/result process prevents MCP timeouts while you read the approval window. Only one command can be active; finished results expire after 15 minutes.
+
+## Native interactive PowerShell console (v0.4.0)
+
+Termylo v0.4 adds the functionality missing from the v0.3 Tkinter viewer:
+
+- **This is a real native powershell.exe window**, not a Python output viewer.
+- You can **type PowerShell commands yourself** inside the visible console and press Enter.
+- ChatGPT can execute requested commands in **the same PowerShell process**, observe their structured output through the local named pipe, and reuse shell variables and the working directory.
+- Clicking **APPROVE SESSION** on the **separate one-time consent popup** opens the native console. The popup then closes. No individual popup is needed for subsequent commands in that approved session.
+- Close the PowerShell window, call close_native_session, or let the lease expire to revoke. The lease is **10 minutes without MCP commands** or **30 minutes total**.
+- The native console contains a deliberately minimal custom single-line prompt (it does not offer full PSReadLine completion, multiline editing, or equivalent terminal history). Basic typing, Enter, Backspace and Escape are implemented. While manually entering a line, incoming MCP commands wait until the line is submitted.
+- Native commands have the **same access as your Windows account**. They are not sandboxed. Revoke when not actively using Termylo.
+- On cancellation or command timeout, Termylo may close the entire native console so a background command cannot continue outside the approved session.
+- The command/control channel is a randomly named **local Windows named pipe**. It does not open a listening HTTP/TCP port or require a second LLM/API service.
+- CI covers native authorization and session lifecycle with mock processes; the actual owner-device physical approval and typing must be verified after deployment.
+
+The original execute_powershell per-command approval mode and the v0.3 open_visible_session viewer mode remain available for compatibility. Native session mode is preferred when you need an editable terminal.
 
 ## Optional visible session (v0.3.0)
 
@@ -134,7 +155,7 @@ ChatGPT web cannot directly reach a laptop's `localhost`. Prefer the official [S
 2. Install the official Windows `tunnel-client`; inspect `tunnel-client help quickstart`.
 3. Initialize an stdio profile with the `sample_mcp_stdio_local` sample, pointing its command at the full path to `your-repo\.venv\Scripts\python.exe` plus `-m termylo.server`. Consult `tunnel-client init --help` for correct Windows quoting.
 4. Store runtime API credentials securely according to tunnel-client documentation. Run `tunnel-client doctor --profile termylo --explain` then `tunnel-client run --profile termylo`.
-5. In ChatGPT web: **Plugins → Add custom MCP server → Tunnel**, choose the tunnel and verify all eight tools.
+5. In ChatGPT web: **Plugins → Add custom MCP server → Tunnel**, choose the tunnel and verify all twelve tools.
 6. Call `termylo_status`. Then request `execute_powershell(command="Write-Output 'Termylo connected'")`, click **APPROVE ONCE** on the laptop and call `powershell_result(job_id=...)`.
 
 Only one active `tunnel-client` instance should use an stdio tunnel ID, because each instance would have its own in-memory job state. If normal ChatGPT can't access write-capable custom MCP tools on your plan, do NOT publish an unauthenticated PowerShell command endpoint. A local MCP-capable development client remains a safe fallback.
