@@ -41,7 +41,7 @@ class JobManager:
             active = next((j for j in self._jobs.values() if j.status not in TERMINAL), None)
             return {"name": "Termylo", "online": True, "windows": os.name == "nt", "active_job": active.id if active else None, "approval": "physical Windows approval for each command"}
 
-    def submit(self, command: str, timeout_seconds: int = 90) -> dict:
+    def submit(self, command: str, timeout_seconds: int = 90, *, runner: Callable[..., dict] | None = None) -> dict:
         issue = validate(command, timeout_seconds)
         if issue:
             return {"status": "rejected", "error": issue}
@@ -54,17 +54,19 @@ class JobManager:
             job = Job(id=secrets.token_urlsafe(18))
             self._jobs[job.id] = job
         try:
-            threading.Thread(target=self._run, args=(job, command, timeout_seconds), daemon=True, name="termylo-job").start()
+            threading.Thread(target=self._run, args=(job, command, timeout_seconds, runner), daemon=True, name="termylo-job").start()
         except (RuntimeError, OSError):
             # Don't leave an unstartable job permanently blocking the only execution slot.
             with self._lock:
                 self._jobs.pop(job.id, None)
             return {"status": "error", "error": "Could not start the local command worker."}
+        if runner is not None:
+            return {"status": "running", "job_id": job.id, "message": "Command submitted to the locally approved visible session; use powershell_result(job_id)."}
         return {"status": "awaiting_approval", "job_id": job.id, "message": "Approve or deny the command in the Windows popup, then call powershell_result(job_id)."}
 
-    def _run(self, job: Job, command: str, timeout_seconds: int) -> None:
+    def _run(self, job: Job, command: str, timeout_seconds: int, runner: Callable[..., dict] | None = None) -> None:
         try:
-            result = self._runner(command, timeout_seconds, cancel_event=job.cancel)
+            result = (runner or self._runner)(command, timeout_seconds, cancel_event=job.cancel)
         except Exception:
             result = {"status": "error", "error": "The local execution agent encountered an error."}
         if not isinstance(result, dict) or result.get("status") not in TERMINAL:
