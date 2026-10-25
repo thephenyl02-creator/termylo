@@ -252,37 +252,7 @@ try {
                             Write-Host ("History enabled: " + $script:TermyloHistoryEnabled + " | entries: " + $script:TermyloHistory.Count)
                         }
                     }
-                } elseif ($manual.Trim() -match '^:review\s+(last|show|clear|status|auto\s+(on|off))
-                Write-NativePrompt
-            } elseif ($key.Key -eq [ConsoleKey]::Backspace) {
-                if ($typed.Length -gt 0) {
-                    $typed = $typed.Substring(0, $typed.Length - 1)
-                    [Console]::Write([char]8)
-                    [Console]::Write(" ")
-                    [Console]::Write([char]8)
-                }
-            } elseif ($key.Key -eq [ConsoleKey]::Escape) {
-                while ($typed.Length -gt 0) {
-                    $typed = $typed.Substring(0, $typed.Length - 1)
-                    [Console]::Write([char]8)
-                    [Console]::Write(" ")
-                    [Console]::Write([char]8)
-                }
-            } elseif ($key.KeyChar -ge [char]32) {
-                $typed += $key.KeyChar
-                [Console]::Write($key.KeyChar)
-            }
-        } else {
-            Start-Sleep -Milliseconds 40
-        }
-    }
-} catch {
-    Write-Host ("Termylo native console error: " + $_.Exception.Message) -ForegroundColor Red
-    Start-Sleep -Seconds 3
-} finally {
-    if ($null -ne $pipe) { $pipe.Dispose() }
-}
-) {
+                } elseif ($manual.Trim() -match '^:review\s+(last|show|clear|status|auto\s+(on|off))$') {
                     $mode = $Matches[1].ToLowerInvariant()
                     switch ($mode) {
                         "last" {
