@@ -4,19 +4,30 @@ from __future__ import annotations
 def test_status_delegates_to_manager(monkeypatch):
     import termylo.server as server
     monkeypatch.setattr(server.jobs, "status", lambda: {"online": True, "name": "Termylo"})
-    assert server.termylo_status() == {"online": True, "name": "Termylo"}
+    monkeypatch.setattr(server.native, "status", lambda: {"status": "closed"})
+    status = server.termylo_status()
+    assert status["online"] is True
+    assert status["native_session"]["status"] == "closed"
+    assert "single local approval" in status["approval"]
 
 def test_safe_tool_delegation_without_execution(monkeypatch):
     import termylo.server as server
     calls = []
-    def fake_submit(cmd, timeout):
-        calls.append(("submit", cmd, timeout))
-        return {"status": "awaiting_approval", "job_id": "test-job"}
+    def fake_submit(cmd, timeout, *, runner=None):
+        calls.append(("submit", cmd, timeout, bool(runner)))
+        return {"status": "running" if runner else "awaiting_approval", "job_id": "test-job"}
     monkeypatch.setattr(server.jobs, "submit", fake_submit)
+    monkeypatch.setattr(server.native, "status", lambda: {"status": "active", "session_id": "native-sid"})
     monkeypatch.setattr(server.jobs, "result", lambda jid: {"status": "denied", "job_id": jid})
     monkeypatch.setattr(server.jobs, "cancel", lambda jid: {"status": "cancellation_requested", "job_id": jid})
-    assert server.execute_powershell("Get-Date", 3)["job_id"] == "test-job"
-    assert calls == [("submit", "Get-Date", 3)]
+    result = server.execute_powershell("Get-Date", 3)
+    assert result["job_id"] == "test-job"
+    assert result["execution_mode"] == "persistent_native"
+    assert result["status"] == "running"
+    assert calls == [("submit", "Get-Date", 3, True)]
+    one_shot = server.execute_powershell_once("Get-Date", 3)
+    assert one_shot["status"] == "awaiting_approval"
+    assert calls[-1] == ("submit", "Get-Date", 3, False)
     assert server.powershell_result("test-job")["status"] == "denied"
     assert server.cancel_powershell("test-job")["status"] == "cancellation_requested"
 
@@ -80,3 +91,13 @@ def test_manual_smoke_reports_denial_without_false_success(monkeypatch, capsys):
     monkeypatch.setattr(manual_smoke, "JobManager", FakeManager)
     assert manual_smoke.main() == 1
     assert "NOT VERIFIED" in capsys.readouterr().out
+
+
+def test_default_asks_for_one_native_session_approval(monkeypatch):
+    import termylo.server as server
+    monkeypatch.setattr(server.native, "status", lambda: {"status": "closed"})
+    monkeypatch.setattr(server.jobs, "submit", lambda command, timeout, *, runner=None:
+                        {"status": "running", "job_id": "id"} if runner else None)
+    result = server.execute_powershell("Get-Date")
+    assert result["status"] == "awaiting_approval"
+    assert "Approve one native SESSION" in result["message"]
