@@ -43,8 +43,9 @@ def main() -> int:
             "without asking again while the session stays active.\n"
             "These commands run as your Windows user and can change files, "
             "install software, or access services.\n"
-            "Close the console to revoke access. It also expires after 10 minutes "
-            "of MCP inactivity or 30 minutes total."
+            "Approval lasts up to FOUR HOURS from activation, even if idle. "
+            "There is no idle timeout. Close the console or explicitly revoke "
+            "the session to end remote access sooner."
         ),
         bg="#101820", fg="#e5e7eb",
         font=("Segoe UI", 10), wraplength=705, justify="left",
