@@ -20,8 +20,7 @@ from pathlib import Path
 
 from .runner import _environment, _is_admin, _system_powershell, _terminate_tree, validate
 
-IDLE_SECONDS = 1200
-MAX_SESSION_SECONDS = 2400
+MAX_SESSION_SECONDS = 4 * 60 * 60
 APPROVAL_SECONDS = 60
 MAX_REPLY_BYTES = 100_000
 
@@ -80,7 +79,6 @@ class NativeSession:
         self._console_proc: subprocess.Popen | None = None
         self._command_cancel: threading.Event | None = None
         self._opened_at = 0.0
-        self._last_activity = 0.0
 
     def _expire_reason(self) -> str | None:
         if self._state != "active":
@@ -89,9 +87,7 @@ class NativeSession:
             return "The native PowerShell console was closed."
         now = time.monotonic()
         if now - self._opened_at >= MAX_SESSION_SECONDS:
-            return "Remote approval reached its 40-minute maximum."
-        if now - self._last_activity >= IDLE_SECONDS:
-            return "Remote approval was inactive for 20 minutes."
+            return "Remote approval reached its four-hour maximum."
         return None
 
     def _close_locked(self, reason: str) -> list[subprocess.Popen]:
@@ -157,12 +153,11 @@ class NativeSession:
                 "terminal": "real, user-editable Windows PowerShell console",
                 "approval": "one physical approval per native session, no per-command prompts",
                 "state": "same real PowerShell process across commands",
-                "idle_limit_seconds": IDLE_SECONDS,
+                "idle_limit_seconds": None,
                 "absolute_limit_seconds": MAX_SESSION_SECONDS,
             }
             if self._state == "active":
                 now = time.monotonic()
-                result["idle_remaining_seconds"] = max(0, int(IDLE_SECONDS - (now - self._last_activity)))
                 result["remaining_seconds"] = max(0, int(MAX_SESSION_SECONDS - (now - self._opened_at)))
             return result
 
@@ -259,7 +254,6 @@ class NativeSession:
                 self._state = "active"
                 self._reason = "Owner-approved native Windows PowerShell console is running."
                 self._opened_at = time.monotonic()
-                self._last_activity = self._opened_at
             threading.Thread(
                 target=self._monitor, args=(sid,), daemon=True,
                 name="termylo-native-monitor",
@@ -304,7 +298,6 @@ class NativeSession:
                 return {"status": "error", "error": "Another native command is running."}
             self._command_cancel = cancel_event
             pipe = self._pipe_name
-            self._last_activity = time.monotonic()
         assert pipe
         result: dict | None = None
         failure: list[Exception] = []
@@ -350,8 +343,6 @@ class NativeSession:
             return result
         finally:
             with self._lock:
-                if self._session_id == sid and self._state == "active":
-                    self._last_activity = time.monotonic()
                 if self._command_cancel is cancel_event:
                     self._command_cancel = None
 
