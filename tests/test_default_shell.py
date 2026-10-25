@@ -87,3 +87,39 @@ def test_unavailable_machine_does_not_execute():
     result = execute_default_native(native, "Get-Date", 5, threading.Event())
     assert result == {"status": "unavailable", "error": "no Windows"}
     assert native.calls == []
+
+
+def test_cancel_pending_approval_revokes_only_its_popup():
+    native = FakeNative()
+    def waiting():
+        return {"status": "opening", "session_id": native.session_id}
+    native.status = waiting
+    closed = []
+    native.close = lambda sid, reason: closed.append((sid, reason))
+    cancel = threading.Event()
+    timer = threading.Timer(0.035, cancel.set)
+    timer.start()
+    try:
+        result = execute_default_native(native, "Get-Date", 5, cancel)
+    finally:
+        timer.join()
+    assert result["status"] == "cancelled"
+    assert closed and closed[0][0] == native.session_id
+    assert native.calls == []
+
+
+def test_cancel_does_not_revoke_separately_requested_session():
+    native = FakeNative()
+    native.start = lambda: {"status": "opening", "session_id": native.session_id}
+    native.status = lambda: {"status": "opening", "session_id": native.session_id}
+    closed = []
+    native.close = lambda sid, reason: closed.append(sid)
+    cancel = threading.Event()
+    timer = threading.Timer(0.035, cancel.set)
+    timer.start()
+    try:
+        result = execute_default_native(native, "Get-Date", 5, cancel)
+    finally:
+        timer.join()
+    assert result["status"] == "cancelled"
+    assert closed == []
