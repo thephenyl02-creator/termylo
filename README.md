@@ -158,6 +158,29 @@ Local command history is **OFF by default**, lives in memory only and records up
 
 Only when explicitly requested by the owner, ChatGPT may use `execute_native_powershell` to run `Get-TermyloHistory -Last 10`. Termylo does **not** automatically retrieve or upload history. Likely sensitive entries are withheld as a unit, but pattern detection is not comprehensive: **never type passwords, keys, or other sensitive material while history is on**. Switch history off first. No history file is written to disk. The old per-command approval tool remains unchanged.
 
+## Local error-sharing permission and opt-in auto review (v0.4.4)
+
+Termylo intentionally separates **capturing an error locally** from **sharing it with ChatGPT**. The controls below must be **typed into the approved native PowerShell window**; chat-initiated commands do not activate these shortcuts.
+
+| Native terminal command | Effect |
+|---|---|
+| `:review last` | Explicitly queue the most recent manually typed command's error for ChatGPT review. General history can stay OFF. |
+| `:review auto on` | Opt in to automatically **queue errors only**, from future keyboard commands in **this native window**. Does not auto-upload or grant remote access. |
+| `:review auto off` | Stop auto-queuing and erase the queue and most recent error. |
+| `:review show` | Display the queue locally. |
+| `:review status` | Show current auto mode and queued error count. |
+| `:review clear` | Erase review queue and most recent error (leaves auto mode unchanged). |
+
+When you say **"Check the error"** in ChatGPT after using `:review last` or opting into `:review auto on`, ChatGPT can run:
+
+```powershell
+Get-TermyloSharedErrors -Last 5 -Consume
+```
+
+This retrieves the **shared error queue only**, not the general manual command history. It clears the entries after retrieval. The queue contains at most 10 errors in RAM; local commands with no error are not queued. Errors possibly containing secrets are replaced with a redacted placeholder. **Redaction is heuristic, not guaranteed**, so avoid entering real credentials or secrets in a terminal with capture enabled. To opt out and erase local pending entries, type `:review auto off` and `:history off`.
+
+**Scope:** Auto review is OFF by default and resets when the native window closes. It does **not** mean launch at Windows sign-in. A separately approved Termylo native session (20 minutes idle / 40 minutes total) is still required for ChatGPT to retrieve shared errors. A terminal shortcut does not proactively send messages to ChatGPT or authorize unattended debugging. The manually shared queue is not a security sandbox: an already-approved native session has its normal PowerShell permissions; use ChatGPT only for the tasks you authorize and close/revoke when finished.
+
 ## One-click start from ChatGPT (Windows custom URI)
 
 A completely stopped tunnel **cannot receive MCP commands**, but Windows can launch a local app from a user-clicked `termylo://start` link. This is the *one-click* solution for Chrome: no manually running terminal or always-on service is required beforehand.
