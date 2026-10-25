@@ -19,7 +19,7 @@ def execute_default_native(
 ) -> dict:
     """Launch or reuse a physical-approval-gated session and execute a command.
 
-    Does not bypass 20-minute idle / 40-minute total authorization limits,
+    Does not bypass the fixed four-hour authorization limit,
     revive a revoked pipe, or fall back to unapproved command execution.
     """
     if cancel_event.is_set():
