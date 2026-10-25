@@ -43,7 +43,7 @@ def termylo_status() -> dict:
 
 @mcp.tool()
 def execute_powershell(command: str, timeout_seconds: int = 90) -> dict:
-    """DEFAULT: reuse the same approved native PowerShell and its state. If no approved session exists, request ONE Windows session approval then execute; do not open a new shell for every command. The session still expires after 20 minutes idle / 40 minutes total. Use powershell_result(job_id) for output."""
+    """DEFAULT: reuse the same approved native PowerShell and its state. If no approved session exists, request ONE Windows session approval then execute; do not open a new shell for every command. Session approval lasts at most four hours with no idle expiry. Use powershell_result(job_id) for output."""
     approved = native.status()["status"] == "active"
     result = jobs.submit(
         command, timeout_seconds,
