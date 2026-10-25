@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="no-referrer">
+  <title>Launch Termylo — Local PowerShell Bridge</title>
+  <meta name="description" content="Start your locally installed Termylo Secure MCP Tunnel with one explicit click.">
+  <style>
+    :root { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color-scheme: dark; background: #0d111a; color: #e9eef8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100svh; display: grid; place-items: center; padding: 24px; }
+    main { width: min(100%, 490px); border: 1px solid #2b374d; border-radius: 22px; background: #141c2a; padding: 32px; box-shadow: 0 24px 75px #0004; }
+    .mark { width: 50px; height: 50px; border-radius: 14px; display: grid; place-items: center; background: #263854; color: #a7c9ff; font: 600 23px ui-monospace, monospace; }
+    h1 { font-size: 1.9rem; line-height: 1.1; margin: 20px 0 8px; }
+    .sub { line-height: 1.6; color: #b1bfd4; margin: 0 0 26px; }
+    .launch { display: block; text-align: center; border-radius: 11px; padding: 15px; background: #a2c8ff; color: #0a172c; font-weight: 700; text-decoration: none; outline-offset: 4px; }
+    .launch:hover, .launch:focus { background: #c5ddff; }
+    .notes { border-top: 1px solid #29364c; margin-top: 26px; padding-top: 20px; color: #abb9ce; line-height: 1.6; font-size: .92rem; }
+    .notes p { margin: 0 0 13px; }
+    kbd, code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+    code { background: #26334a; border-radius: 5px; padding: 2px 5px; overflow-wrap: anywhere; }
+    a:not(.launch) { color: #afceff; }
+    footer { font-size: .78rem; color: #8f9fb5; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark" aria-hidden="true">&gt;_</div>
+    <h1>Launch Termylo</h1>
+    <p class="sub">Start the secure connection between ChatGPT and your Windows PowerShell bridge.</p>
+    <a class="launch" href="termylo://start">Launch Termylo on this PC</a>
+    <section class="notes" aria-label="Help and security">
+      <p>When Chrome asks to open an external application, confirm only if you intended to start Termylo.</p>
+      <p>Requires the Termylo Windows launcher to be installed on this computer. This website cannot access your files or run PowerShell commands.</p>
+      <p>If this link does not work, press <kbd>Win</kbd> + <kbd>R</kbd>, type <code>termylo://start</code>, and press Enter.</p>
+      <p>Return to ChatGPT after launch. Opening an interactive PowerShell session still requires your local approval.</p>
+    </section>
+    <footer>Termylo · local-first · no credentials are entered on this page</footer>
+  </main>
+</body>
+</html>
