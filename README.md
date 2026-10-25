@@ -2,14 +2,15 @@
 
 **Your personal Windows PowerShell bridge for MCP clients.** No paid automation service, remote desktop, dashboard, browser, or subscription. Runs only while you start its MCP connection.
 
-Termylo's workflow: **AI requests a command → you approve it in a Windows popup → Termylo runs it on your laptop → output and exit code return to the AI.** The server doesn't listen on a network port. Normal execution requires approval for each command; a separate opt-in visible session supports short-lived window-level approval.
+Termylo's default workflow: **AI requests a command → you approve one native PowerShell session (if none is active) → subsequent commands reuse that exact terminal until the lease expires → output and exit code return to the AI.** The server doesn't listen on a network port. Per-command approval is still available explicitly.
 
 ## Tools
 
 | Tool | What it does |
 |---|---|
 | `termylo_status` | Check whether local MCP agent responds. |
-| `execute_powershell(command, timeout_seconds)` | Submit **one** command, returning a job ID immediately. |
+| `execute_powershell(command, timeout_seconds)` | **Default:** reuse an approved native terminal, opening one with local session approval when necessary. Returns a job ID immediately. |
+| `execute_powershell_once(command, timeout_seconds)` | Explicit one-shot command in a separate PowerShell process, with its own local approval popup. |
 | `powershell_result(job_id)` | Fetch result: stdout, stderr, exit code, truncation indicators. |
 | `cancel_powershell(job_id)` | Request cancellation and best-effort termination of PowerShell process tree. |
 | `open_visible_session` | Ask the laptop owner to grant time-limited approval for one visible window. |
@@ -22,6 +23,20 @@ Termylo's workflow: **AI requests a command → you approve it in a Windows popu
 | `close_native_session(session_id)` | Revoke the session and close the console. |
 
 The two-step request/result process prevents MCP timeouts while you read the approval window. Only one command can be active; finished results expire after 15 minutes.
+
+## Default reuse of the native PowerShell session (v0.4.6)
+
+For ongoing work like building Axtario, **`execute_powershell` now uses an existing owner-approved native PowerShell session by default**. It does not create a new PowerShell process for every command or prompt again while that session is active.
+
+- First command with no approved native session: request **one physical APPROVE SESSION** popup, then execute that queued command in the native window.
+- Subsequent commands: automatically reuse the same window, working directory, environment and shell variables. Every command is still explicit user-requested work.
+- To require a separate, individually approved PowerShell process, call **`execute_powershell_once`**.
+- Authorization is still limited to **20 minutes without MCP activity or 40 minutes total**. After expiry, a fresh session needs local approval. Older local-only windows can stay open for the user's work, but cannot be silently reattached, and may need manual closing.
+- For an intentional new shell, `close_native_session` revokes the old approved one and `open_native_session` requests a new local consent.
+- Termylo uses one command slot at a time; no parallel native command execution.
+- Updating the repository alone **does not update a running MCP server**. Restart the secure tunnel after installing v0.4.6 so the new default routing is loaded. It will interrupt currently connected jobs and any approved native-session lease.
+
+The one-off approval path still exists; granting native approval is broader because subsequent commands do not trigger separate on-device popups. Do not approve native access for work you don't authorize.
 
 ## Native interactive PowerShell console (v0.4.0)
 
