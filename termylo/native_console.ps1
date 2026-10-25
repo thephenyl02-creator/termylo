@@ -16,6 +16,15 @@ $script:TermyloRemoteEnabled = $true
 $script:TermyloHistoryEnabled = $false
 $script:TermyloHistory = [System.Collections.Generic.List[object]]::new()
 $script:TermyloHistoryLimit = 40
+# Local-only review queue. Error capture does not grant remote access.
+# Manual sharing or :review auto on places a bounded redacted error
+# into this queue; ChatGPT must still have a separately approved session
+# and ask for the queue explicitly.
+$script:TermyloReviewAutoEnabled = $false
+$script:TermyloLastError = $null
+$script:TermyloReviewQueue = [System.Collections.Generic.List[object]]::new()
+$script:TermyloReviewLimit = 10
+
 
 function Read-ExactBytes {
     param([System.IO.Stream]$Stream, [int]$Length)
@@ -67,6 +76,51 @@ function Get-TermyloHistory {
     return ($script:TermyloHistory | Select-Object -Last $Last | Format-List | Out-String -Width 240)
 }
 
+
+function Save-TermyloErrorCandidate {
+    param([string]$Command, [AllowEmptyString()][string]$ErrorText)
+    # Retain only the most recent error from commands physically typed
+    # at the native console. Successful commands are not retained here.
+    if ([string]::IsNullOrWhiteSpace($ErrorText)) { return }
+    $possiblySensitive = Test-TermyloSensitive ($Command + [Environment]::NewLine + $ErrorText)
+    $safeCommand = $Command.Substring(0, [Math]::Min($Command.Length, 400))
+    $safeError = $ErrorText.Substring(0, [Math]::Min($ErrorText.Length, 1800))
+    if ($possiblySensitive) {
+        $safeCommand = "[omitted: possible sensitive content]"
+        $safeError = "[omitted: possible sensitive content]"
+    }
+    $entry = [pscustomobject]@{
+        time_utc = [DateTime]::UtcNow.ToString('o')
+        command = $safeCommand
+        error = $safeError
+    }
+    $script:TermyloLastError = $entry
+    if ($script:TermyloReviewAutoEnabled) { Add-TermyloReviewEntry $entry }
+}
+
+function Add-TermyloReviewEntry {
+    param([Parameter(Mandatory=$true)][psobject]$Entry)
+    $script:TermyloReviewQueue.Add($Entry)
+    while ($script:TermyloReviewQueue.Count -gt $script:TermyloReviewLimit) {
+        $script:TermyloReviewQueue.RemoveAt(0)
+    }
+}
+
+function Get-TermyloSharedErrors {
+    param(
+        [ValidateRange(1, 10)][int]$Last = 5,
+        [switch]$Consume
+    )
+    # Reading this function via MCP is a deliberate ChatGPT action.
+    # It cannot reach errors not placed in the approved review queue.
+    if ($script:TermyloReviewQueue.Count -eq 0) {
+        return "No locally shared errors. Type :review last or :review auto on."
+    }
+    $result = ($script:TermyloReviewQueue | Select-Object -Last $Last | Format-List | Out-String -Width 200)
+    if ($Consume) { $script:TermyloReviewQueue.Clear() }
+    return $result
+}
+
 function Write-NativeText {
     param([string]$Content)
     if ($Content.Length -gt 0) { [Console]::WriteLine($Content.TrimEnd()) }
@@ -88,6 +142,8 @@ try {
     Write-Host "Type commands directly here, or request commands through ChatGPT." -ForegroundColor Gray
     Write-Host "Remote access: 20 minutes idle / 40 minutes total. Local window remains open." -ForegroundColor Yellow
     Write-Host "History commands: :history on | off | clear | show | status" -ForegroundColor Gray
+    Write-Host "Error review: :review last | auto on | auto off | show | clear | status" -ForegroundColor Gray
+    Write-Host "No errors are shared unless explicitly queued for review." -ForegroundColor Gray
     Write-Host "History may contain secrets. Keep it OFF during sensitive work." -ForegroundColor Yellow
     Write-NativePrompt
     $typed = ""
@@ -196,25 +252,103 @@ try {
                             Write-Host ("History enabled: " + $script:TermyloHistoryEnabled + " | entries: " + $script:TermyloHistory.Count)
                         }
                     }
+                } elseif ($manual.Trim() -match '^:review\s+(last|show|clear|status|auto\s+(on|off))
+                Write-NativePrompt
+            } elseif ($key.Key -eq [ConsoleKey]::Backspace) {
+                if ($typed.Length -gt 0) {
+                    $typed = $typed.Substring(0, $typed.Length - 1)
+                    [Console]::Write([char]8)
+                    [Console]::Write(" ")
+                    [Console]::Write([char]8)
+                }
+            } elseif ($key.Key -eq [ConsoleKey]::Escape) {
+                while ($typed.Length -gt 0) {
+                    $typed = $typed.Substring(0, $typed.Length - 1)
+                    [Console]::Write([char]8)
+                    [Console]::Write(" ")
+                    [Console]::Write([char]8)
+                }
+            } elseif ($key.KeyChar -ge [char]32) {
+                $typed += $key.KeyChar
+                [Console]::Write($key.KeyChar)
+            }
+        } else {
+            Start-Sleep -Milliseconds 40
+        }
+    }
+} catch {
+    Write-Host ("Termylo native console error: " + $_.Exception.Message) -ForegroundColor Red
+    Start-Sleep -Seconds 3
+} finally {
+    if ($null -ne $pipe) { $pipe.Dispose() }
+}
+) {
+                    $mode = $Matches[1].ToLowerInvariant()
+                    switch ($mode) {
+                        "last" {
+                            if ($null -eq $script:TermyloLastError) {
+                                Write-Host "No recent manual command error available to share."
+                            } else {
+                                Add-TermyloReviewEntry $script:TermyloLastError
+                                Write-Host "Most recent error queued for ChatGPT review (RAM only)." -ForegroundColor Yellow
+                            }
+                        }
+                        "show" { Write-NativeText (Get-TermyloSharedErrors -Last 5) }
+                        "clear" {
+                            $script:TermyloReviewQueue.Clear()
+                            $script:TermyloLastError = $null
+                            Write-Host "Review queue and most recent error CLEARED."
+                        }
+                        "status" {
+                            Write-Host ("Review auto: " + $script:TermyloReviewAutoEnabled + " | queued: " + $script:TermyloReviewQueue.Count + " | latest manual error: " + ($null -ne $script:TermyloLastError))
+                        }
+                        "auto on" {
+                            $script:TermyloReviewAutoEnabled = $true
+                            Write-Host "Auto error review ON for this window only (RAM, 10 errors max)." -ForegroundColor Yellow
+                            Write-Host "Errors are queued locally; ChatGPT cannot see them unless it requests the queue."
+                        }
+                        "auto off" {
+                            $script:TermyloReviewAutoEnabled = $false
+                            $script:TermyloReviewQueue.Clear()
+                            $script:TermyloLastError = $null
+                            Write-Host "Auto error review OFF. Pending reviews CLEARED."
+                        }
+                    }
                 } elseif ($manual.Trim().Length -gt 0) {
+                    # Collect *error records* even when general history is OFF.
+                    # Do not retain stdout or successful commands for error review.
+                    $Error.Clear()
+                    $manualError = ""
+                    $global:LASTEXITCODE = 0
                     if ($script:TermyloHistoryEnabled) {
                         $historyOutput = ""
-                        $historyError = ""
                         try {
                             $historyOutput = [string](Invoke-Expression $manual *>&1 | Out-String -Width 240)
                             Write-NativeText $historyOutput
                         } catch {
-                            $historyError = $_.ToString()
-                            [Console]::WriteLine("ERROR: " + $historyError)
+                            $manualError = $_.ToString()
+                            [Console]::WriteLine("ERROR: " + $manualError)
                         }
-                        Save-TermyloHistory -Command $manual -Output $historyOutput -ErrorText $historyError
+                        if ($Error.Count -gt 0 -and -not $manualError) {
+                            $manualError = ($Error | Select-Object -First 3 | Out-String -Width 200)
+                        } elseif ($global:LASTEXITCODE -ne 0 -and -not $manualError) {
+                            $manualError = "External command exited with code " + $global:LASTEXITCODE
+                        }
+                        Save-TermyloHistory -Command $manual -Output $historyOutput -ErrorText $manualError
                     } else {
                         try {
                             Invoke-Expression $manual *>&1 | Out-Host
                         } catch {
-                            [Console]::WriteLine("ERROR: " + $_.ToString())
+                            $manualError = $_.ToString()
+                            [Console]::WriteLine("ERROR: " + $manualError)
+                        }
+                        if ($Error.Count -gt 0 -and -not $manualError) {
+                            $manualError = ($Error | Select-Object -First 3 | Out-String -Width 200)
+                        } elseif ($global:LASTEXITCODE -ne 0 -and -not $manualError) {
+                            $manualError = "External command exited with code " + $global:LASTEXITCODE
                         }
                     }
+                    Save-TermyloErrorCandidate -Command $manual -ErrorText $manualError
                 }
                 Write-NativePrompt
             } elseif ($key.Key -eq [ConsoleKey]::Backspace) {
