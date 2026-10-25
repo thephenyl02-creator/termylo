@@ -24,17 +24,27 @@ Termylo's default workflow: **AI requests a command → you approve one native P
 
 The two-step request/result process prevents MCP timeouts while you read the approval window. Only one command can be active; finished results expire after 15 minutes.
 
-## Default reuse of the native PowerShell session (v0.4.6)
+## Four-hour native authorization policy (v0.4.7)
+
+- **One explicit local approval** starts an authorized native PowerShell session. The default `execute_powershell` tool reuses that session, including across long idle periods.
+- The lease lasts **14,400 seconds (four hours) after approval**. No idle timer, keepalive commands or repeated approval are required during the lease.
+- The **remaining_seconds** value in `native_session_status` counts down the absolute lease. `idle_limit_seconds` is `null`; there is no `idle_remaining_seconds` for native sessions.
+- **Manual revocation remains immediate**: close the native console or call `close_native_session(session_id)`. A four-hour expiry disables remote access and retains the terminal for local use when it can safely revoke its named pipe; if IPC revocation fails, it terminates the console.
+- Native session approval applies only while the machine is running, the tunnel is connected and the remote session exists. A Windows restart, tunnel restart, terminal closure or command timeout/cancellation can end it early. **Approval does not last forever and does not renew automatically.**
+- A long-running command that crosses the absolute deadline is cancelled and its console can be closed. The four-hour limit does not turn a command into an unattended persistent daemon.
+- The separate `open_visible_session` tool still has its own older limits. Its behavior has not changed.
+
+## Default reuse of the native PowerShell session (v0.4.7)
 
 For ongoing work like building Axtario, **`execute_powershell` now uses an existing owner-approved native PowerShell session by default**. It does not create a new PowerShell process for every command or prompt again while that session is active.
 
 - First command with no approved native session: request **one physical APPROVE SESSION** popup, then execute that queued command in the native window.
 - Subsequent commands: automatically reuse the same window, working directory, environment and shell variables. Every command is still explicit user-requested work.
 - To require a separate, individually approved PowerShell process, call **`execute_powershell_once`**.
-- Authorization is still limited to **20 minutes without MCP activity or 40 minutes total**. After expiry, a fresh session needs local approval. Older local-only windows can stay open for the user's work, but cannot be silently reattached, and may need manual closing.
+- A native approval lasts **four hours total, with no idle timeout**. The user can be away from the keyboard during that period while the laptop remains awake, connected, and the tunnel is online. At the four-hour limit, remote authority is revoked even if commands are running; a new approval is required for further commands. Expired consoles stay usable locally when safe, but cannot be silently reattached.
 - For an intentional new shell, `close_native_session` revokes the old approved one and `open_native_session` requests a new local consent.
 - Termylo uses one command slot at a time; no parallel native command execution.
-- Updating the repository alone **does not update a running MCP server**. Restart the secure tunnel after installing v0.4.6 so the new default routing is loaded. It will interrupt currently connected jobs and any approved native-session lease.
+- Updating the repository alone **does not update a running MCP server**. Restart the secure tunnel after installing v0.4.7 so the new policy is loaded. It will interrupt currently connected jobs and any approved native-session lease.
 
 The one-off approval path still exists; granting native approval is broader because subsequent commands do not trigger separate on-device popups. Do not approve native access for work you don't authorize.
 
@@ -46,7 +56,7 @@ Termylo v0.4 adds the functionality missing from the v0.3 Tkinter viewer:
 - You can **type PowerShell commands yourself** inside the visible console and press Enter.
 - ChatGPT can execute requested commands in **the same PowerShell process**, observe their structured output through the local named pipe, and reuse shell variables and the working directory.
 - Clicking **APPROVE SESSION** on the **separate one-time consent popup** opens the native console. The popup then closes. No individual popup is needed for subsequent commands in that approved session.
-- Close the PowerShell window, call close_native_session, or let the lease expire to revoke. The lease is **10 minutes without MCP commands** or **30 minutes total**.
+- Close the PowerShell window, call close_native_session, or let the lease expire to revoke. The native-session lease is **four hours total with no idle timeout** (the older visible-session viewer is a separate mode).
 - The native console contains a deliberately minimal custom single-line prompt (it does not offer full PSReadLine completion, multiline editing, or equivalent terminal history). Basic typing, Enter, Backspace and Escape are implemented. While manually entering a line, incoming MCP commands wait until the line is submitted.
 - Native commands have the **same access as your Windows account**. They are not sandboxed. Revoke when not actively using Termylo.
 - On cancellation or command timeout, Termylo may close the entire native console so a background command cannot continue outside the approved session.
@@ -162,7 +172,7 @@ It will show a popup containing one harmless `Write-Output` command. Click **APP
 
 ## Native terminal v0.4.1: local continuity and optional history
 
-ChatGPT's remote authorization expires after **20 minutes of MCP inactivity** or **40 minutes total**. On normal expiry, Termylo asks the console to dispose its local IPC pipe and **leaves the Windows PowerShell window open for local keyboard use**. A new ChatGPT session requires another physical approval and opens a **new console**, not a continuation of the former process. Explicit session closure, command cancellation/timeout, a disconnected pipe, or failure to acknowledge revocation may still terminate the window for safety.
+ChatGPT's native-session authorization expires after **four hours total, with no idle timeout**. On normal expiry, Termylo asks the console to dispose its local IPC pipe and **leaves the Windows PowerShell window open for local keyboard use**. A new ChatGPT session requires another physical approval and opens a **new console**, not a continuation of the former process. Explicit session closure, command cancellation/timeout, a disconnected pipe, or failure to acknowledge revocation may still terminate the window for safety.
 
 Local command history is **OFF by default**, lives in memory only and records up to **40 manual commands** with bounded output/errors. Type these directly in the native PowerShell window:
 
@@ -196,7 +206,7 @@ Get-TermyloSharedErrors -Last 5 -Consume
 
 This retrieves the **shared error queue only**, not the general manual command history. It clears the entries after retrieval. The queue contains at most 10 errors in RAM; local commands with no error are not queued. Errors possibly containing secrets are replaced with a redacted placeholder. **Redaction is heuristic, not guaranteed**, so avoid entering real credentials or secrets in a terminal with capture enabled. To opt out and erase local pending entries, type `:review auto off` and `:history off`.
 
-**Scope:** Auto review is OFF by default and resets when the native window closes. It does **not** mean launch at Windows sign-in. A separately approved Termylo native session (20 minutes idle / 40 minutes total) is still required for ChatGPT to retrieve shared errors. A terminal shortcut does not proactively send messages to ChatGPT or authorize unattended debugging. The manually shared queue is not a security sandbox: an already-approved native session has its normal PowerShell permissions; use ChatGPT only for the tasks you authorize and close/revoke when finished.
+**Scope:** Auto review is OFF by default and resets when the native window closes. It does **not** mean launch at Windows sign-in. A separately approved Termylo native session (four-hour maximum, no idle timeout) is still required for ChatGPT to retrieve shared errors. A terminal shortcut does not proactively send messages to ChatGPT or authorize unattended debugging. The manually shared queue is not a security sandbox: an already-approved native session has its normal PowerShell permissions; use ChatGPT only for the tasks you authorize and close/revoke when finished.
 
 ## One-click start from ChatGPT (Windows custom URI)
 
