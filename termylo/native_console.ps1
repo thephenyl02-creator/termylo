@@ -98,6 +98,20 @@ function Save-TermyloErrorCandidate {
     if ($script:TermyloReviewAutoEnabled) { Add-TermyloReviewEntry $entry }
 }
 
+function Get-TermyloLatestError {
+    param([switch]$Clear)
+    # No :review command or history opt-in is needed: an explicit request
+    # in ChatGPT authorizes retrieving this one already-redacted error.
+    # Only errors from commands manually typed into this native window
+    # are eligible; nothing is proactively uploaded or written to disk.
+    if ($null -eq $script:TermyloLastError) {
+        return "No manually typed command errors captured in this terminal."
+    }
+    $result = ($script:TermyloLastError | Format-List | Out-String -Width 200)
+    if ($Clear) { $script:TermyloLastError = $null }
+    return $result
+}
+
 function Add-TermyloReviewEntry {
     param([Parameter(Mandatory=$true)][psobject]$Entry)
     $script:TermyloReviewQueue.Add($Entry)
