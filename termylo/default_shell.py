@@ -32,6 +32,16 @@ def execute_default_native(
     if status not in ("active", "awaiting_approval", "opening"):
         return {"status": "error", "error": "Unexpected native session state."}
 
+    pending_session_id = opening.get("session_id") if status == "awaiting_approval" else None
+    def revoke_unfinished_request() -> None:
+        # Cancellation/timeout of this job must never leave its own approval
+        # popup running. Do not close an approval started by another tool.
+        if not pending_session_id:
+            return
+        state = native.status()
+        if state.get("status") == "opening" and state.get("session_id") == pending_session_id:
+            native.close(pending_session_id, "Default command approval was cancelled or timed out.")
+
     deadline = time.monotonic() + APPROVAL_SECONDS + 8
     while not cancel_event.is_set() and time.monotonic() < deadline:
         state = native.status()
@@ -47,6 +57,7 @@ def execute_default_native(
         if state["status"] != "opening":
             return {"status": "error", "error": "Unexpected native approval state."}
         cancel_event.wait(0.1)
+    revoke_unfinished_request()
     if cancel_event.is_set():
         return {"status": "cancelled"}
     return {"status": "denied", "error": "Native session approval timed out."}
