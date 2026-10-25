@@ -208,6 +208,20 @@ You can close all terminals before clicking the link. Since the tunnel is headle
 .\scripts\install-uri-protocol.ps1 -Action Remove
 ```
 
+## HTTPS launcher website: termylo.fenilbuilds.com
+
+A static, script-free launch page lives in [site/index.html](site/index.html). This is meant to solve ChatGPT's restriction on opening non-HTTPS custom protocol links: ChatGPT opens a normal HTTPS link first, **then the owner deliberately clicks** the page's \`termylo://start\` link in Chrome.
+
+**Deploy with Cloudflare Pages:**
+
+1. Create a Pages project connected to the GitHub \`thephenyl02-creator/termylo\` repository, production branch \`main\`. Choose **no framework**, leave the build command blank and use **\`site\` as the build output directory** (root directory \`/\`).
+2. Verify the resulting \`*.pages.dev\` URL displays **Launch Termylo**.
+3. In **Workers & Pages → the project → Custom domains**, add \`termylo.fenilbuilds.com\` and let Cloudflare issue HTTPS and create/verify the required DNS CNAME. If the domain DNS is external, create the CNAME at that DNS provider after attaching the custom domain in Pages.
+4. On the user's Windows laptop, make sure \`.\scripts\install-uri-protocol.ps1 -Action Status\` reports \`TERMYLO_URI=READY\`.
+5. From ChatGPT, open \`https://termylo.fenilbuilds.com\`; in Chrome, click **Launch Termylo on this PC** and confirm any external-app prompt. Then check the MCP bridge responds.
+
+**The hostname does not become live merely by committing this directory.** Its Cloudflare Pages project, DNS record and HTTPS certificate must actually be configured. The web page cannot inspect tunnel status and does not contain credentials, arbitrary command actions, JavaScript, analytics or a remote execution endpoint. URL protocol activation requires a user gesture and browser permission may vary. If browser navigation is blocked, **Win+R → \`termylo://start\`** remains the direct fallback.
+
 ## Secure tunnel key storage on Windows
 
 Termylo's MCP server **does not need an API key itself**. The official Secure MCP Tunnel client uses a restricted \`CONTROL_PLANE_API_KEY\` to connect to the OpenAI control plane. Never put this key in GitHub, shell command-line arguments, a plaintext YAML profile, or PowerShell history.
