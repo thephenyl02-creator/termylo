@@ -53,6 +53,12 @@ jobs:
         run: |
           & .\scripts\test-secure-tunnel-key.ps1
 
+      - name: Test local error-review consent and auto-on privacy
+        if: runner.os == 'Windows' && matrix.python-version == '3.12'
+        shell: powershell
+        run: |
+          & .\scripts\native_review_smoke.ps1
+
       - name: Run full Windows installation setup
         if: runner.os == 'Windows' && matrix.python-version == '3.12'
         shell: powershell
