@@ -160,7 +160,9 @@ Only when explicitly requested by the owner, ChatGPT may use `execute_native_pow
 
 ## Local error-sharing permission and opt-in auto review (v0.4.4)
 
-Termylo intentionally separates **capturing an error locally** from **sharing it with ChatGPT**. The controls below must be **typed into the approved native PowerShell window**; chat-initiated commands do not activate these shortcuts.
+Termylo retains **only the most recent error** from commands typed into its native PowerShell window, in memory, automatically. **No terminal shortcut, general history setting, or auto-review toggle is required.** When you explicitly say **"There's an error—check it"** in ChatGPT, ChatGPT may run `Get-TermyloLatestError` in your **already-approved native session** to retrieve that last redacted error and diagnose it. It does not automatically upload errors or watch your terminal in the background. If the session is no longer approved, a new approval is required; an expired local-only terminal is not silently reattached.
+
+You can optionally use the older granular queue controls below if you want to share a sequence of errors. Those controls must be typed locally:
 
 | Native terminal command | Effect |
 |---|---|
