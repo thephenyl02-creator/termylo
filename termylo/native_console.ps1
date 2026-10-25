@@ -154,7 +154,7 @@ try {
     $Host.UI.RawUI.WindowTitle = "Termylo - Real Windows PowerShell (close to revoke)"
     Write-Host "Termylo native PowerShell session" -ForegroundColor Cyan
     Write-Host "Type commands directly here, or request commands through ChatGPT." -ForegroundColor Gray
-    Write-Host "Remote access: 20 minutes idle / 40 minutes total. Local window remains open." -ForegroundColor Yellow
+    Write-Host "Remote access: up to 4 hours total; no idle timeout. Local window stays open after expiry." -ForegroundColor Yellow
     Write-Host "History commands: :history on | off | clear | show | status" -ForegroundColor Gray
     Write-Host "Error review: :review last | auto on | auto off | show | clear | status" -ForegroundColor Gray
     Write-Host "No errors are shared unless explicitly queued for review." -ForegroundColor Gray
