@@ -81,13 +81,15 @@ class NativeSession:
         self._opened_at = 0.0
 
     def _expire_reason(self) -> str | None:
-        if self._state != "active":
+        if self._state not in ("active", "recovering"):
             return None
-        if self._console_proc is None or self._console_proc.poll() is not None:
-            return "The native PowerShell console was closed."
-        now = time.monotonic()
-        if now - self._opened_at >= MAX_SESSION_SECONDS:
+        # Lease time is independent of any PowerShell process restarts.
+        if time.monotonic() - self._opened_at >= MAX_SESSION_SECONDS:
             return "Remote approval reached its four-hour maximum."
+        if self._state == "active" and (
+            self._console_proc is None or self._console_proc.poll() is not None
+        ):
+            return "The native PowerShell console was closed."
         return None
 
     def _close_locked(self, reason: str) -> list[subprocess.Popen]:
@@ -156,7 +158,7 @@ class NativeSession:
                 "idle_limit_seconds": None,
                 "absolute_limit_seconds": MAX_SESSION_SECONDS,
             }
-            if self._state == "active":
+            if self._state in ("active", "recovering"):
                 now = time.monotonic()
                 result["remaining_seconds"] = max(0, int(MAX_SESSION_SECONDS - (now - self._opened_at)))
             return result
@@ -170,7 +172,7 @@ class NativeSession:
             return {"status": "unavailable", "error": "Cannot verify system PowerShell."}
         self._check()
         with self._lock:
-            if self._state in ("opening", "active"):
+            if self._state in ("opening", "active", "recovering"):
                 return {"status": self._state, "session_id": self._session_id,
                         "message": "Existing native PowerShell session; check native_session_status."}
             sid = secrets.token_urlsafe(18)
@@ -272,7 +274,7 @@ class NativeSession:
         while True:
             self._check()
             with self._lock:
-                if self._state != "active" or self._session_id != sid:
+                if self._state not in ("active", "recovering") or self._session_id != sid:
                     return
             time.sleep(0.2)
 
@@ -282,6 +284,74 @@ class NativeSession:
             if self._state != "active" or not self._session_id or session_id != self._session_id:
                 return {"status": "unavailable", "error": "No matching approved native terminal session."}
         return None
+
+    def _recover_after_command_abort(self, sid: str, cause: str) -> bool:
+        """Replace only the failed console, retaining the *original* local lease.
+
+        A hung native PowerShell pipeline runs in the console itself, so it
+        cannot safely be interrupted in-place. Terminate the old process tree,
+        verify the parent exited, and create a new pipe/console without another
+        consent popup while the previously approved four-hour lease is valid.
+        Shell variables and working directory are intentionally reset.
+        """
+        with self._lock:
+            if (self._state != "active" or self._session_id != sid or
+                    time.monotonic() - self._opened_at >= MAX_SESSION_SECONDS):
+                return False
+            previous = self._console_proc
+            self._state = "recovering"
+            self._reason = "Recovering native console after " + cause + "."
+            self._console_proc = None
+            self._pipe_name = None
+
+        if previous is not None:
+            self._stop([previous])
+        if previous is None or previous.poll() is None:
+            # Never start a second command shell while the first might run.
+            with self._lock:
+                if self._state == "recovering" and self._session_id == sid:
+                    self._close_locked("Could not verify old console termination.")
+            return False
+
+        fresh = None
+        try:
+            powershell = _system_powershell()
+            script = Path(__file__).with_name("native_console.ps1")
+            if not powershell or not script.is_file():
+                raise RuntimeError("Cannot initialize recovery console.")
+            pipe = "termylo-" + secrets.token_hex(20)
+            fresh = subprocess.Popen(
+                [powershell, "-NoLogo", "-NoProfile", "-File",
+                 str(script), "-PipeName", pipe],
+                cwd=str(Path.home()), env=_environment(),
+                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+                stdin=None, stdout=None, stderr=None,
+            )
+            ready = _native_exchange(
+                pipe, "Write-Output 'Termylo recovery console ready'",
+                time.monotonic() + 10, threading.Event(),
+            )
+            if fresh.poll() is not None or ready.get("exit_code") != 0:
+                raise RuntimeError("Recovered native console not ready.")
+            with self._lock:
+                if (self._state == "recovering" and self._session_id == sid and
+                        time.monotonic() - self._opened_at < MAX_SESSION_SECONDS):
+                    self._console_proc = fresh
+                    self._pipe_name = pipe
+                    self._state = "active"
+                    self._reason = ("Owner-approved session recovered after " + cause +
+                                    "; PowerShell state reset.")
+                    return True
+        except Exception:
+            pass
+
+        # Expiry, concurrent revocation, or a failed readiness probe: fail closed.
+        if fresh is not None:
+            self._stop([fresh])
+        with self._lock:
+            if self._state == "recovering" and self._session_id == sid:
+                self._close_locked("Native PowerShell recovery failed; approval revoked.")
+        return False
 
     def execute(
         self, sid: str, command: str, timeout_seconds: int,
@@ -332,11 +402,19 @@ class NativeSession:
                         reason = "cancelled"
                         break
             if reason:
-                self.close(sid, "Native command was " + reason + "; console revoked to stop execution.")
-                return {"status": reason, "error": "Native session ended because the command was " + reason + "."}
+                recovered = self._recover_after_command_abort(sid, reason)
+                return {
+                    "status": reason,
+                    "error": ("Command " + reason + "; old PowerShell stopped. " +
+                              ("Approved lease preserved in a fresh console." if recovered
+                               else "Could not safely recover the console.")),
+                    "session_recovered": recovered,
+                    "shell_state_reset": recovered,
+                }
             if cancel_event.is_set():
-                self.close(sid, "Native command was cancelled; terminal authorization revoked.")
-                return {"status": "cancelled"}
+                recovered = self._recover_after_command_abort(sid, "cancelled")
+                return {"status": "cancelled", "session_recovered": recovered,
+                        "shell_state_reset": recovered}
             if failure or result is None:
                 self.close(sid, "PowerShell IPC failed or disconnected.")
                 return {"status": "error", "error": "Native PowerShell IPC request failed."}
