@@ -192,26 +192,95 @@ def test_expiry_boundary_and_session_id_revoked(monkeypatch):
     assert not terminal.stopped  # can still type locally after remote revoke
 
 
-def test_cancel_stops_whole_native_shell(monkeypatch):
-    _, terminal, _ = configure(monkeypatch)
+def fresh_restart_mocks(monkeypatch, exchange):
+    """Produce a different process for each console, but only one consent popup."""
+    consent, _, _ = configure(monkeypatch)
+    consoles, approvals = [], []
+    def launch(argv, **kwargs):
+        if "termylo.native_approval" in argv:
+            approvals.append(1)
+            return consent
+        console = FakeProcess(consent=False)
+        consoles.append(console)
+        return console
+    monkeypatch.setattr(native.subprocess, "Popen", launch)
+    monkeypatch.setattr(native, "_native_exchange", exchange)
+    return consoles, approvals
+
+
+def completed_response():
+    return {"status": "completed", "exit_code": 0, "stdout": "ready",
+            "stderr": "", "stdout_truncated": False, "stderr_truncated": False}
+
+
+def test_timeout_restarts_console_without_second_approval(monkeypatch):
+    entered = threading.Event()
+    def exchange(pipe, command, deadline, cancel_event):
+        if command == "Start-Sleep 8":
+            entered.set()
+            time.sleep(1.25)
+        return completed_response()
+    consoles, approvals = fresh_restart_mocks(monkeypatch, exchange)
     manager = native.NativeSession()
     manager.start()
     sid = get_state(manager, "active")["session_id"]
+    first_opened = manager._opened_at
+    assert entered.is_set() is False
+    result = manager.execute(sid, "Start-Sleep 8", 1, threading.Event())
+    assert result["status"] == "timeout"
+    assert result["session_recovered"] is True
+    assert result["shell_state_reset"] is True
+    assert manager.status()["status"] == "active"
+    assert manager.status()["session_id"] == sid
+    assert manager._opened_at == first_opened
+    assert len(approvals) == 1
+    assert len(consoles) == 2
+    assert consoles[0].stopped and not consoles[1].stopped
+    assert manager.execute(sid, "Get-Date", 5, threading.Event())["exit_code"] == 0
+
+
+def test_cancel_restarts_console_with_original_lease(monkeypatch):
     entered = threading.Event()
+    def exchange(pipe, command, deadline, cancel_event):
+        if command == "Start-Sleep 20":
+            entered.set()
+            cancel_event.wait(4)
+        return completed_response()
+    consoles, approvals = fresh_restart_mocks(monkeypatch, exchange)
+    manager = native.NativeSession()
+    manager.start()
+    sid = get_state(manager, "active")["session_id"]
     cancel = threading.Event()
-    def blocked(*args):
-        entered.set()
-        cancel.wait(4)
-        raise RuntimeError("Cancelled")
-    monkeypatch.setattr(native, "_native_exchange", blocked)
     results = []
-    thread = threading.Thread(target=lambda: results.append(manager.execute(sid, "Start-Sleep 20", 15, cancel)))
+    thread = threading.Thread(
+        target=lambda: results.append(manager.execute(sid, "Start-Sleep 20", 15, cancel))
+    )
     thread.start()
     assert entered.wait(2)
     cancel.set()
     thread.join(3)
     assert results[0]["status"] == "cancelled"
-    assert terminal.stopped
+    assert results[0]["session_recovered"] is True
+    assert manager.status()["session_id"] == sid
+    assert len(approvals) == 1 and len(consoles) == 2
+    assert consoles[0].stopped and not consoles[1].stopped
+
+
+def test_recovery_fails_closed_when_old_shell_cannot_be_stopped(monkeypatch):
+    def exchange(pipe, command, deadline, cancel_event):
+        if command == "Start-Sleep 8":
+            time.sleep(1.25)
+        return completed_response()
+    consoles, approvals = fresh_restart_mocks(monkeypatch, exchange)
+    monkeypatch.setattr(native, "_terminate_tree", lambda proc: None)
+    manager = native.NativeSession()
+    manager.start()
+    sid = get_state(manager, "active")["session_id"]
+    result = manager.execute(sid, "Start-Sleep 8", 1, threading.Event())
+    assert result["status"] == "timeout"
+    assert result["session_recovered"] is False
+    assert manager.status()["status"] == "closed"
+    assert len(approvals) == 1 and len(consoles) == 1
 
 
 def test_invalid_commands_do_not_execute(monkeypatch):
