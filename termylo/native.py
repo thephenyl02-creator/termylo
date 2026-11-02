@@ -159,6 +159,7 @@ class NativeSession:
             if self._state == "active":
                 now = time.monotonic()
                 result["remaining_seconds"] = max(0, int(MAX_SESSION_SECONDS - (now - self._opened_at)))
+                result["command_running"] = self._command_cancel is not None
             return result
 
     def start(self) -> dict:
@@ -315,6 +316,12 @@ class NativeSession:
                 failure.append(exc)
             finally:
                 done.set()
+                # A timed-out caller may have returned while this command is
+                # still executing. Hold the command slot until IPC actually
+                # finishes, so another command never races the first one.
+                with self._lock:
+                    if self._command_cancel is cancel_event:
+                        self._command_cancel = None
 
         threading.Thread(target=worker, daemon=True, name="termylo-native-command").start()
         deadline = time.monotonic() + timeout_seconds
@@ -331,6 +338,19 @@ class NativeSession:
                     if self._state != "active" or self._session_id != sid:
                         reason = "cancelled"
                         break
+            if reason == "timeout":
+                # The in-process PowerShell pipeline cannot be forcibly killed
+                # without also killing the approved console. Treat this as a
+                # *soft* timeout: report honestly, retain the 4-hour approval,
+                # and keep the session command slot locked until the worker
+                # really completes. Cancellation remains an explicit hard stop.
+                return {
+                    "status": "timeout",
+                    "error": "Command exceeded its response timeout and may still be running. "
+                             "Session approval is preserved; new commands wait until it finishes.",
+                    "session_preserved": True,
+                    "command_may_still_run": not done.is_set(),
+                }
             if reason:
                 self.close(sid, "Native command was " + reason + "; console revoked to stop execution.")
                 return {"status": reason, "error": "Native session ended because the command was " + reason + "."}
@@ -343,7 +363,7 @@ class NativeSession:
             return result
         finally:
             with self._lock:
-                if self._command_cancel is cancel_event:
+                if done.is_set() and self._command_cancel is cancel_event:
                     self._command_cancel = None
 
     def close(self, sid: str, reason: str = "Native terminal revoked by the user.") -> dict:
