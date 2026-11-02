@@ -24,13 +24,13 @@ Termylo's default workflow: **AI requests a command → you approve one native P
 
 The two-step request/result process prevents MCP timeouts while you read the approval window. Only one command can be active; finished results expire after 15 minutes.
 
-## Four-hour native authorization policy (v0.4.7)
+## Four-hour native authorization policy (v0.4.8)
 
 - **One explicit local approval** starts an authorized native PowerShell session. The default `execute_powershell` tool reuses that session, including across long idle periods.
 - The lease lasts **14,400 seconds (four hours) after approval**. No idle timer, keepalive commands or repeated approval are required during the lease.
 - The **remaining_seconds** value in `native_session_status` counts down the absolute lease. `idle_limit_seconds` is `null`; there is no `idle_remaining_seconds` for native sessions.
 - **Manual revocation remains immediate**: close the native console or call `close_native_session(session_id)`. A four-hour expiry disables remote access and retains the terminal for local use when it can safely revoke its named pipe; if IPC revocation fails, it terminates the console.
-- Native session approval applies only while the machine is running, the tunnel is connected and the remote session exists. A Windows restart, tunnel restart, terminal closure or command timeout/cancellation can end it early. **Approval does not last forever and does not renew automatically.**
+- Native session approval applies only while the machine is running, the tunnel is connected and the remote session exists. A Windows restart, tunnel restart, terminal closure, or failed safety recovery can end it early. Ordinary command timeouts/cancellations now attempt to replace the stopped PowerShell console under the same unexpired approval; PowerShell variables and working directory are reset if recovery succeeds. **Approval does not last forever and does not renew automatically.**
 - A long-running command that crosses the absolute deadline is cancelled and its console can be closed. The four-hour limit does not turn a command into an unattended persistent daemon.
 - The separate `open_visible_session` tool still has its own older limits. Its behavior has not changed.
 
@@ -59,7 +59,7 @@ Termylo v0.4 adds the functionality missing from the v0.3 Tkinter viewer:
 - Close the PowerShell window, call close_native_session, or let the lease expire to revoke. The native-session lease is **four hours total with no idle timeout** (the older visible-session viewer is a separate mode).
 - The native console contains a deliberately minimal custom single-line prompt (it does not offer full PSReadLine completion, multiline editing, or equivalent terminal history). Basic typing, Enter, Backspace and Escape are implemented. While manually entering a line, incoming MCP commands wait until the line is submitted.
 - Native commands have the **same access as your Windows account**. They are not sandboxed. Revoke when not actively using Termylo.
-- On cancellation or command timeout, Termylo may close the entire native console so a background command cannot continue outside the approved session.
+- On cancellation or command timeout, Termylo stops the old native console (including its process tree) and verifies termination before launching a fresh console under the **same unexpired four-hour approval**. The new console resets PowerShell variables and working directory. If the old console cannot be confirmed stopped, recovery fails closed and another approval may be needed. The four-hour deadline never extends.
 - The command/control channel is a randomly named **local Windows named pipe**. It does not open a listening HTTP/TCP port or require a second LLM/API service.
 - CI covers native authorization and session lifecycle with mock processes; the actual owner-device physical approval and typing must be verified after deployment.
 

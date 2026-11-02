@@ -29,7 +29,7 @@ def execute_default_native(
     if status in ("error", "unavailable", "rejected", "denied"):
         return {"status": status if status != "error" else "error",
                 "error": opening.get("error") or "Native session could not be opened."}
-    if status not in ("active", "awaiting_approval", "opening"):
+    if status not in ("active", "awaiting_approval", "opening", "recovering"):
         return {"status": "error", "error": "Unexpected native session state."}
 
     pending_session_id = opening.get("session_id") if status == "awaiting_approval" else None
@@ -54,7 +54,7 @@ def execute_default_native(
         if state["status"] == "closed":
             return {"status": "denied",
                     "error": "Native session approval was denied, expired or closed."}
-        if state["status"] != "opening":
+        if state["status"] not in ("opening", "recovering"):
             return {"status": "error", "error": "Unexpected native approval state."}
         cancel_event.wait(0.1)
     revoke_unfinished_request()
