@@ -5,6 +5,7 @@ from .jobs import JobManager
 from .visible import VisibleSession
 from .native import NativeSession
 from .default_shell import execute_default_native
+from .runner import run_command
 
 mcp = FastMCP(
     "Termylo",
@@ -120,6 +121,31 @@ def execute_native_powershell(session_id: str, command: str, timeout_seconds: in
         command, timeout_seconds,
         runner=lambda c, t, cancel_event: native.execute(session_id, c, t, cancel_event),
     )
+
+@mcp.tool()
+def execute_isolated_powershell(session_id: str, command: str, timeout_seconds: int = 90) -> dict:
+    """Run a bounded command in a hidden child PowerShell process under an
+    already approved native session. A command timeout kills only that child,
+    not the four-hour consent or native console. Unlike execute_native_powershell,
+    this does not preserve shell variables or its working directory.
+    """
+    invalid = native.validate(session_id)
+    if invalid:
+        return invalid
+
+    def isolated_runner(c, t, cancel_event):
+        class SessionGate:
+            def is_set(self):
+                return cancel_event.is_set() or native.validate(session_id) is not None
+
+        return run_command(
+            c, t,
+            approve=lambda _command, _cancel: native.validate(session_id) is None,
+            cancel_event=SessionGate(),
+        )
+
+    return jobs.submit(command, timeout_seconds, runner=isolated_runner)
+
 
 @mcp.tool()
 def close_native_session(session_id: str) -> dict:
