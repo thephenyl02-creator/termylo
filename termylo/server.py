@@ -103,7 +103,7 @@ def close_visible_session(session_id: str) -> dict:
 
 @mcp.tool()
 def open_native_session() -> dict:
-    """Open a real, locally editable Windows PowerShell console. Requires the user to explicitly request this and physically APPROVE SESSION; after that, further execute_native_powershell calls DO NOT ask again. The console expires after 10 minutes of MCP inactivity or 30 minutes total. This is arbitrary code execution under the user's Windows account."""
+    """Open the real locally editable PowerShell console. Requires one physical APPROVE SESSION click; commands need no further per-command approval. The authorization lasts at most four hours with no idle timeout. Closing/revoking the console ends the approval."""
     return native.start()
 
 @mcp.tool()
