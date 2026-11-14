@@ -6,10 +6,11 @@ from .native import NativeSession
 
 
 class ProjectSessions:
-    def __init__(self, default_session: NativeSession | None = None):
+    def __init__(self, default_session: NativeSession | None = None, approval=None):
+        self._approval = approval
         self._lock = threading.RLock()
         self._sessions: dict[str, NativeSession] = {
-            "default": default_session if default_session is not None else NativeSession()
+            "default": default_session if default_session is not None else NativeSession(approval=approval)
         }
         self._directories: dict[str, str] = {}
 
@@ -22,7 +23,7 @@ class ProjectSessions:
         key = self.normalize(project_id)
         with self._lock:
             if key not in self._sessions:
-                self._sessions[key] = NativeSession()
+                self._sessions[key] = NativeSession(approval=self._approval)
             return key, self._sessions[key]
 
     def prepare(self, project_id: str | None = None, duration_hours: float = 4,
@@ -49,6 +50,19 @@ class ProjectSessions:
             if native.status().get("session_id") == session_id:
                 return key, native
         return None
+
+    def close_all(self) -> dict:
+        """Revoke universal approval and close each project terminal."""
+        if self._approval is not None:
+            self._approval.revoke()
+        with self._lock:
+            sessions = list(self._sessions.values())
+        for native in sessions:
+            state = native.status()
+            sid = state.get("session_id")
+            if sid:
+                native.close(sid)
+        return {"status": "closed", "closed_projects": len(sessions)}
 
     def list_status(self) -> list[dict]:
         with self._lock:
