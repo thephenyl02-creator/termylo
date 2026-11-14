@@ -53,13 +53,13 @@ class ProjectSessions:
 
     def close_all(self) -> dict:
         """Revoke universal approval and close each project terminal."""
-        if self._approval is not None:
-            self._approval.revoke()
         with self._lock:
             sessions = list(self._sessions.values())
-        for native in sessions:
-            state = native.status()
-            sid = state.get("session_id")
+        # Capture session IDs before global revocation disposes their IPC handles.
+        targets = [(native, native.status().get("session_id")) for native in sessions]
+        if self._approval is not None:
+            self._approval.revoke()
+        for native, sid in targets:
             if sid:
                 native.close(sid)
         return {"status": "closed", "closed_projects": len(sessions)}
