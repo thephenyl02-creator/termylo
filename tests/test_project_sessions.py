@@ -48,31 +48,92 @@ def test_custom_duration_must_be_positive():
     assert native.configure(float("inf"))["status"] == "rejected"
 
 
-def test_parallel_jobs_for_different_projects_and_busy_same_project(monkeypatch):
+def test_independent_working_directories_and_process_environments(tmp_path):
+    alpha_path = tmp_path / "alpha"
+    beta_path = tmp_path / "beta"
+    alpha_path.mkdir()
+    beta_path.mkdir()
+    registry = ProjectSessions()
+    _, alpha, issue = registry.prepare("Alpha", 4, str(alpha_path))
+    assert issue is None
+    _, beta, issue = registry.prepare("Beta", 4, str(beta_path))
+    assert issue is None
+    assert alpha is not beta
+    assert alpha.status()["working_directory"] != beta.status()["working_directory"]
+    alpha_env = alpha._project_environment()
+    beta_env = beta._project_environment()
+    assert alpha_env["TERMYLO_PROJECT_ID"] == "alpha"
+    assert beta_env["TERMYLO_PROJECT_ID"] == "beta"
+    alpha_env["MY_CUSTOM_VARIABLE"] = "alpha-only"
+    assert "MY_CUSTOM_VARIABLE" not in beta_env
+
+
+def test_fifo_within_project_and_parallel_between_projects(monkeypatch):
     monkeypatch.setattr(jobs_module.os, "name", "nt")
     manager = JobManager()
-    release = threading.Event()
-    started = threading.Event()
+    release_a = threading.Event()
+    started_a = threading.Event()
+    started_b = threading.Event()
+    calls = []
+    call_lock = threading.Lock()
 
     def worker(command, timeout, cancel_event):
-        started.set()
-        release.wait(2)
+        if command == "a-first":
+            started_a.set()
+            assert release_a.wait(3)
+        if command == "b-first":
+            started_b.set()
+        with call_lock:
+            calls.append(command)
         return {"status": "completed", "exit_code": 0, "stdout": command, "stderr": ""}
 
     try:
-        first = manager.submit("Get-Date", 10, project_id="axtario", runner=worker)
-        assert first["job_id"] and started.wait(2)
-        blocked = manager.submit("Get-Date", 10, project_id="axtario", runner=worker)
-        assert blocked["status"] == "busy"
-        second = manager.submit("Get-Date", 10, project_id="akira", runner=worker)
-        assert second["job_id"] != first["job_id"]
+        first = manager.submit("a-first", 10, project_id="axtario", runner=worker)
+        assert first["job_id"] and started_a.wait(2)
+        queued = manager.submit("a-second", 10, project_id="axtario", runner=worker)
+        assert queued["status"] == "queued" and queued["queue_position"] == 2
+        assert manager.result(queued["job_id"])["status"] == "queued"
+        other = manager.submit("b-first", 10, project_id="akira", runner=worker)
+        assert other["job_id"] != first["job_id"]
+        assert started_b.wait(2)
+        assert "a-second" not in calls
     finally:
-        release.set()
+        release_a.set()
+
     deadline = time.monotonic() + 3
-    while time.monotonic() < deadline and (
-        manager.result(first["job_id"])["status"] != "completed"
-        or manager.result(second["job_id"])["status"] != "completed"
+    while time.monotonic() < deadline and any(
+        manager.result(job["job_id"])["status"] != "completed"
+        for job in (first, queued, other)
     ):
         time.sleep(.01)
+    assert all(manager.result(job["job_id"])["status"] == "completed"
+               for job in (first, queued, other))
+    assert calls.index("a-first") < calls.index("a-second")
+
+
+def test_cancel_queued_command_does_not_execute(monkeypatch):
+    monkeypatch.setattr(jobs_module.os, "name", "nt")
+    manager = JobManager()
+    entered = threading.Event()
+    release = threading.Event()
+    executed = []
+
+    def worker(command, timeout, cancel_event):
+        if command == "first":
+            entered.set()
+            assert release.wait(3)
+        executed.append(command)
+        return {"status": "completed", "exit_code": 0}
+
+    first = manager.submit("first", 10, project_id="x", runner=worker)
+    assert entered.wait(2)
+    queued = manager.submit("second", 10, project_id="x", runner=worker)
+    assert queued["status"] == "queued"
+    assert manager.cancel(queued["job_id"])["status"] == "cancellation_requested"
+    assert manager.result(queued["job_id"])["status"] == "cancelled"
+    release.set()
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline and manager.result(first["job_id"])["status"] != "completed":
+        time.sleep(.01)
     assert manager.result(first["job_id"])["status"] == "completed"
-    assert manager.result(second["job_id"])["status"] == "completed"
+    assert executed == ["first"]
