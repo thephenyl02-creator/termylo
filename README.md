@@ -22,12 +22,12 @@ Termylo's default workflow: **AI requests a command → you approve one native P
 | `execute_native_powershell(session_id, command, timeout_seconds)` | Run commands in the same PowerShell process, preserving variables and working directory. |
 | `close_native_session(session_id)` | Revoke the session and close the console. |
 
-The two-step request/result process prevents MCP timeouts while you read the approval window. Only one command can be active; finished results expire after 15 minutes.
+The two-step request/result process prevents MCP timeouts while you read the approval window. One command per project can be active at a time; different projects execute independently. Finished results expire after 15 minutes.
 
-## Four-hour native authorization policy (v0.4.8)
+## Native authorization policy (four-hour default)
 
 - **One explicit local approval** starts an authorized native PowerShell session. The default `execute_powershell` tool reuses that session, including across long idle periods.
-- The lease lasts **14,400 seconds (four hours) after approval**. No idle timer, keepalive commands or repeated approval are required during the lease.
+- The default lease lasts **14,400 seconds (four hours) after approval**; an explicit duration_hours can set a different lifetime when opening a new session. No idle timer, keepalive commands or repeated approval are required during the lease.
 - The **remaining_seconds** value in `native_session_status` counts down the absolute lease. `idle_limit_seconds` is `null`; there is no `idle_remaining_seconds` for native sessions.
 - **Manual revocation remains immediate**: close the native console or call `close_native_session(session_id)`. A four-hour expiry disables remote access and retains the terminal for local use when it can safely revoke its named pipe; if IPC revocation fails, it terminates the console.
 - Native session approval applies only while the machine is running, the tunnel is connected and the remote session exists. A Windows restart, tunnel restart, terminal closure, or failed safety recovery can end it early. Ordinary command timeouts/cancellations now attempt to replace the stopped PowerShell console under the same unexpired approval; PowerShell variables and working directory are reset if recovery succeeds. **Approval does not last forever and does not renew automatically.**
@@ -43,7 +43,7 @@ For ongoing work like building Axtario, **`execute_powershell` now uses an exist
 - To require a separate, individually approved PowerShell process, call **`execute_powershell_once`**.
 - A native approval lasts **four hours total, with no idle timeout**. The user can be away from the keyboard during that period while the laptop remains awake, connected, and the tunnel is online. At the four-hour limit, remote authority is revoked even if commands are running; a new approval is required for further commands. Expired consoles stay usable locally when safe, but cannot be silently reattached.
 - For an intentional new shell, `close_native_session` revokes the old approved one and `open_native_session` requests a new local consent.
-- Termylo uses one command slot at a time; no parallel native command execution.
+- Termylo uses one command slot per project; different projects can execute concurrently.
 - Updating the repository alone **does not update a running MCP server**. Restart the secure tunnel after installing v0.4.7 so the new policy is loaded. It will interrupt currently connected jobs and any approved native-session lease.
 
 The one-off approval path still exists; granting native approval is broader because subsequent commands do not trigger separate on-device popups. Do not approve native access for work you don't authorize.
@@ -308,3 +308,31 @@ Official tunnel-client on Windows (outbound connection)
 ## License
 
 Personal utility. No open-source license selected.
+
+
+## Project-keyed native sessions
+
+Termylo now routes by **project_id**, not ChatGPT conversation or tab.
+Different ChatGPT conversations in the same project use the same project_id
+and reconnect to the same approved real PowerShell window. Different project
+IDs open separate windows and can run commands at the same time; commands for
+one project still execute one at a time in its own persistent PowerShell state.
+
+- Default approval lifetime: 4 hours, **no idle timeout**.
+- Custom lifetime: call open_native_session(project_id="Axtario",
+  duration_hours=10) before approving the new terminal.
+- Reuse: call native_session_status(project_id="Axtario") to get its
+  session_id; execute_powershell(command="...", project_id="Axtario")
+  automatically reuses its current approved window.
+- Optional working_directory is remembered for that project's next terminal
+  after the previous terminal expires. An expired approval requires a new
+  physical approval; a new conversation does not.
+- For compatibility, requests omitting project_id still use the old
+  "default" terminal. To isolate real ChatGPT projects, supply a stable
+  project_id on every call. MCP does not automatically receive the ChatGPT
+  conversation URL or project ID from the platform.
+- An active terminal retains its initially approved lifetime even if a
+  subsequent request specifies a different duration. New duration requests
+  apply to newly opened sessions.
+
+Legacy per-command and visible-session tools are otherwise unchanged.

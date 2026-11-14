@@ -6,6 +6,7 @@ same main thread. No command text or API credentials pass to this window.
 from __future__ import annotations
 
 import os
+import argparse
 import sys
 import threading
 
@@ -14,9 +15,15 @@ def main() -> int:
     if os.name != "nt" or threading.current_thread() is not threading.main_thread():
         return 1
     import tkinter as tk
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--hours", type=float, default=4)
+    parser.add_argument("--project", default="default")
+    args = parser.parse_args()
+    duration_label = f"{args.hours:g} hours"
+    project_label = str(args.project)[:80]
 
     root = tk.Tk()
-    root.title("Termylo — authorize a native PowerShell session")
+    root.title(f"Termylo — authorize PowerShell: {project_label}")
     root.geometry("760x325")
     root.minsize(620, 300)
     root.attributes("-topmost", True)
@@ -43,7 +50,7 @@ def main() -> int:
             "without asking again while the session stays active.\n"
             "These commands run as your Windows user and can change files, "
             "install software, or access services.\n"
-            "Approval lasts up to FOUR HOURS from activation, even if idle. "
+            f"Project: {project_label}. Approval lasts up to {duration_label} from activation, even if idle. "
             "There is no idle timeout. Close the console or explicitly revoke "
             "the session to end remote access sooner."
         ),

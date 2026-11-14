@@ -13,7 +13,7 @@ def test_status_delegates_to_manager(monkeypatch):
 def test_safe_tool_delegation_without_execution(monkeypatch):
     import termylo.server as server
     calls = []
-    def fake_submit(cmd, timeout, *, runner=None):
+    def fake_submit(cmd, timeout, *, runner=None, project_id='default'):
         calls.append(("submit", cmd, timeout, bool(runner)))
         return {"status": "running" if runner else "awaiting_approval", "job_id": "test-job"}
     monkeypatch.setattr(server.jobs, "submit", fake_submit)
@@ -96,7 +96,7 @@ def test_manual_smoke_reports_denial_without_false_success(monkeypatch, capsys):
 def test_default_asks_for_one_native_session_approval(monkeypatch):
     import termylo.server as server
     monkeypatch.setattr(server.native, "status", lambda: {"status": "closed"})
-    monkeypatch.setattr(server.jobs, "submit", lambda command, timeout, *, runner=None:
+    monkeypatch.setattr(server.jobs, "submit", lambda command, timeout, *, runner=None, project_id='default':
                         {"status": "running", "job_id": "id"} if runner else None)
     result = server.execute_powershell("Get-Date")
     assert result["status"] == "awaiting_approval"

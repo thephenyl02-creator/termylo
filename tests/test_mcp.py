@@ -26,6 +26,13 @@ def test_real_stdio_mcp_handshake():
                 tools = await session.list_tools()
                 names = {tool.name for tool in tools.tools}
                 assert {"termylo_status", "execute_powershell", "powershell_result", "cancel_powershell", "open_visible_session", "visible_session_status", "execute_visible_powershell", "close_visible_session", "open_native_session", "native_session_status", "execute_native_powershell", "close_native_session"} <= names
+                open_tool = next(t for t in tools.tools if t.name == "open_native_session")
+                assert "project_id" in open_tool.inputSchema["properties"]
+                assert "duration_hours" in open_tool.inputSchema["properties"]
+                assert "working_directory" in open_tool.inputSchema["properties"]
+                default_tool = next(t for t in tools.tools if t.name == "execute_powershell")
+                assert "project_id" in default_tool.inputSchema["properties"]
+                assert "duration_hours" in default_tool.inputSchema["properties"]
                 status = extract_result(await session.call_tool("termylo_status"))
                 assert status["online"] is True
                 bad = extract_result(await session.call_tool("execute_powershell", {"command": "", "timeout_seconds": 10}))

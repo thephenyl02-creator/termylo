@@ -9,6 +9,7 @@ No TCP listener and no cloud API are introduced.
 from __future__ import annotations
 
 import json
+import math
 import os
 import secrets
 import struct
@@ -79,13 +80,45 @@ class NativeSession:
         self._console_proc: subprocess.Popen | None = None
         self._command_cancel: threading.Event | None = None
         self._opened_at = 0.0
+        self._max_session_seconds = MAX_SESSION_SECONDS
+        self._working_directory: str | None = None
+        self._project_id = "default"
+
+    def configure(self, duration_hours: float = 4, working_directory: str | None = None,
+                  project_id: str = "default") -> dict | None:
+        """Configure the NEXT locally-approved lease; never extend an active approval."""
+        if isinstance(duration_hours, bool) or not isinstance(duration_hours, (int, float)):
+            return {"status": "rejected", "error": "Session hours must be a positive number."}
+        seconds = float(duration_hours) * 3600
+        if not math.isfinite(seconds) or seconds <= 0:
+            return {"status": "rejected", "error": "Session hours must be a positive finite number."}
+        directory = None
+        if working_directory is not None:
+            try:
+                path = Path(working_directory).expanduser().resolve()
+                if not path.is_dir():
+                    return {"status": "rejected", "error": "Project working directory does not exist."}
+                directory = str(path)
+            except (OSError, ValueError, TypeError):
+                return {"status": "rejected", "error": "Invalid project working directory."}
+        with self._lock:
+            if self._state in ("active", "opening", "recovering"):
+                return None
+            self._max_session_seconds = seconds
+            self._project_id = project_id
+            if directory is not None:
+                self._working_directory = directory
+        return None
+
 
     def _expire_reason(self) -> str | None:
         if self._state not in ("active", "recovering"):
             return None
         # Lease time is independent of any PowerShell process restarts.
-        if time.monotonic() - self._opened_at >= MAX_SESSION_SECONDS:
-            return "Remote approval reached its four-hour maximum."
+        if time.monotonic() - self._opened_at >= self._max_session_seconds:
+            hours = self._max_session_seconds / 3600
+            label = "four" if self._max_session_seconds == MAX_SESSION_SECONDS else f"{hours:g}"
+            return f"Remote approval reached its {label}-hour maximum."
         if self._state == "active" and (
             self._console_proc is None or self._console_proc.poll() is not None
         ):
@@ -156,11 +189,13 @@ class NativeSession:
                 "approval": "one physical approval per native session, no per-command prompts",
                 "state": "same real PowerShell process across commands",
                 "idle_limit_seconds": None,
-                "absolute_limit_seconds": MAX_SESSION_SECONDS,
+                "absolute_limit_seconds": self._max_session_seconds,
+                "project_id": self._project_id,
+                "working_directory": self._working_directory,
             }
             if self._state in ("active", "recovering"):
                 now = time.monotonic()
-                result["remaining_seconds"] = max(0, int(MAX_SESSION_SECONDS - (now - self._opened_at)))
+                result["remaining_seconds"] = max(0, int(self._max_session_seconds - (now - self._opened_at)))
             return result
 
     def start(self) -> dict:
@@ -197,7 +232,8 @@ class NativeSession:
         native = None
         try:
             consent = subprocess.Popen(
-                [sys.executable, "-m", "termylo.native_approval"],
+                [sys.executable, "-m", "termylo.native_approval", "--hours",
+                 str(self._max_session_seconds / 3600), "--project", self._project_id],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -229,7 +265,7 @@ class NativeSession:
             native = subprocess.Popen(
                 [powershell, "-NoLogo", "-NoProfile", "-File",
                  str(script), "-PipeName", pipe_name],
-                cwd=str(Path.home()),
+                cwd=self._working_directory or str(Path.home()),
                 env=_environment(),
                 creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
                 stdin=None, stdout=None, stderr=None,
@@ -296,7 +332,7 @@ class NativeSession:
         """
         with self._lock:
             if (self._state != "active" or self._session_id != sid or
-                    time.monotonic() - self._opened_at >= MAX_SESSION_SECONDS):
+                    time.monotonic() - self._opened_at >= self._max_session_seconds):
                 return False
             previous = self._console_proc
             self._state = "recovering"
@@ -323,7 +359,7 @@ class NativeSession:
             fresh = subprocess.Popen(
                 [powershell, "-NoLogo", "-NoProfile", "-File",
                  str(script), "-PipeName", pipe],
-                cwd=str(Path.home()), env=_environment(),
+                cwd=self._working_directory or str(Path.home()), env=_environment(),
                 creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
                 stdin=None, stdout=None, stderr=None,
             )
@@ -335,7 +371,7 @@ class NativeSession:
                 raise RuntimeError("Recovered native console not ready.")
             with self._lock:
                 if (self._state == "recovering" and self._session_id == sid and
-                        time.monotonic() - self._opened_at < MAX_SESSION_SECONDS):
+                        time.monotonic() - self._opened_at < self._max_session_seconds):
                     self._console_proc = fresh
                     self._pipe_name = pipe
                     self._state = "active"

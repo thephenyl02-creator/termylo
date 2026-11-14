@@ -17,6 +17,7 @@ class Job:
     id: str
     created: float = field(default_factory=time.monotonic)
     status: str = "awaiting_approval"
+    project_id: str = "default"
     result: dict | None = None
     cancel: threading.Event = field(default_factory=threading.Event)
 
@@ -41,7 +42,7 @@ class JobManager:
             active = next((j for j in self._jobs.values() if j.status not in TERMINAL), None)
             return {"name": "Termylo", "online": True, "windows": os.name == "nt", "active_job": active.id if active else None, "approval": "physical Windows approval for each command"}
 
-    def submit(self, command: str, timeout_seconds: int = 90, *, runner: Callable[..., dict] | None = None) -> dict:
+    def submit(self, command: str, timeout_seconds: int = 90, *, runner: Callable[..., dict] | None = None, project_id: str = "default") -> dict:
         issue = validate(command, timeout_seconds)
         if issue:
             return {"status": "rejected", "error": issue}
@@ -49,9 +50,9 @@ class JobManager:
             return {"status": "unavailable", "error": "Windows PowerShell is required."}
         with self._lock:
             self._prune()
-            if any(j.status not in TERMINAL for j in self._jobs.values()):
+            if any(j.status not in TERMINAL and j.project_id == project_id for j in self._jobs.values()):
                 return {"status": "busy", "error": "Finish or cancel the previous command first."}
-            job = Job(id=secrets.token_urlsafe(18))
+            job = Job(id=secrets.token_urlsafe(18), project_id=project_id)
             self._jobs[job.id] = job
         try:
             threading.Thread(target=self._run, args=(job, command, timeout_seconds, runner), daemon=True, name="termylo-job").start()
