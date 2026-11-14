@@ -8,7 +8,7 @@ def test_status_delegates_to_manager(monkeypatch):
     status = server.termylo_status()
     assert status["online"] is True
     assert status["native_session"]["status"] == "closed"
-    assert "single local approval" in status["approval"]
+    assert "one owner approval" in status["approval"]
 
 def test_safe_tool_delegation_without_execution(monkeypatch):
     import termylo.server as server
@@ -100,4 +100,4 @@ def test_default_asks_for_one_native_session_approval(monkeypatch):
                         {"status": "running", "job_id": "id"} if runner else None)
     result = server.execute_powershell("Get-Date")
     assert result["status"] == "awaiting_approval"
-    assert "Approve one native SESSION" in result["message"]
+    assert "ONE universal native session" in result["message"]
