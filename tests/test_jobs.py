@@ -27,7 +27,11 @@ def test_approved_command_roundtrip(monkeypatch):
     assert req["status"] == "awaiting_approval"
     jid = req["job_id"]
     assert mgr.result(jid)["status"] == "awaiting_approval_or_running"
-    assert mgr.submit("Get-Date")["status"] == "busy"
+    queued = mgr.submit("Get-Date")
+    assert queued["status"] == "queued"
+    assert mgr.result(queued["job_id"])["status"] == "queued"
+    assert mgr.cancel(queued["job_id"])["status"] == "cancellation_requested"
+    assert mgr.result(queued["job_id"])["status"] == "cancelled"
     assert mgr.status()["active_job"] == jid
     approved.set()
     result = until_finished(mgr, jid)
