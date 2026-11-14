@@ -70,7 +70,9 @@ def _native_exchange(
 
 
 class NativeSession:
-    def __init__(self):
+    def __init__(self, approval=None):
+        self._approval = approval
+        self._grant_id: str | None = None
         self._lock = threading.RLock()
         self._state = "closed"
         self._reason = "No native PowerShell session is open."
@@ -120,6 +122,8 @@ class NativeSession:
     def _expire_reason(self) -> str | None:
         if self._state not in ("active", "recovering"):
             return None
+        if self._approval is not None and not self._approval.valid(self._grant_id):
+            return "Remote approval expired or revoked across all projects."
         # Lease time is independent of any PowerShell process restarts.
         if time.monotonic() - self._opened_at >= self._max_session_seconds:
             hours = self._max_session_seconds / 3600
@@ -138,6 +142,7 @@ class NativeSession:
         self._session_id = None
         self._pipe_name = None
         self._consent_proc = None
+        self._grant_id = None
         self._console_proc = None
         if self._command_cancel is not None:
             self._command_cancel.set()
@@ -192,7 +197,9 @@ class NativeSession:
                 "reason": self._reason,
                 "session_id": self._session_id,
                 "terminal": "real, user-editable Windows PowerShell console",
-                "approval": "one physical approval per native session, no per-command prompts",
+                "approval": ("one universal Windows approval for all native project terminals"
+                             if self._approval is not None else
+                             "one physical approval per native session, no per-command prompts"),
                 "state": "same real PowerShell process across commands",
                 "idle_limit_seconds": None,
                 "absolute_limit_seconds": self._max_session_seconds,
@@ -216,10 +223,17 @@ class NativeSession:
             if self._state in ("opening", "active", "recovering"):
                 return {"status": self._state, "session_id": self._session_id,
                         "message": "Existing native PowerShell session; check native_session_status."}
+            universal = None
+            if self._approval is not None:
+                universal = self._approval.begin(self._max_session_seconds / 3600)
+                if universal["status"] in ("rejected", "error"):
+                    return universal
             sid = secrets.token_urlsafe(18)
             pipe = "termylo-" + secrets.token_hex(20)
             self._state = "opening"
-            self._reason = "Waiting for explicit physical Windows session approval."
+            self._reason = ("Attaching to the universal owner approval."
+                            if self._approval is not None and universal["status"] == "active"
+                            else "Waiting for explicit physical Windows session approval.")
             self._session_id = sid
             self._pipe_name = pipe
             try:
@@ -230,37 +244,54 @@ class NativeSession:
             except (RuntimeError, OSError):
                 self._close_locked("Could not start native-session worker.")
                 return {"status": "error", "error": "Could not start native-session worker."}
+        if self._approval is not None and universal["status"] == "active":
+            return {"status": "opening", "session_id": sid,
+                    "message": "Reusing existing universal approval; no new Windows popup."}
         return {"status": "awaiting_approval", "session_id": sid,
-                "message": "Click APPROVE SESSION on the Windows consent window. A real PowerShell terminal will then open."}
+                "message": ("Approve the ONE universal session on Windows."
+                            if self._approval is not None else
+                            "Click APPROVE SESSION on the Windows consent window. A real PowerShell terminal will then open.")}
 
     def _launch(self, sid: str, pipe_name: str) -> None:
         consent = None
         native = None
         try:
-            consent = subprocess.Popen(
-                [sys.executable, "-m", "termylo.native_approval", "--hours",
-                 str(self._max_session_seconds / 3600), "--project", self._project_id],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env=_environment(),
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            with self._lock:
-                if self._state != "opening" or self._session_id != sid:
-                    self._stop([consent])
+            grant = None
+            if self._approval is not None:
+                grant = self._approval.wait()
+                if grant is None:
+                    self._fail_open(sid, "Universal approval denied, revoked or timed out.")
                     return
-                self._consent_proc = consent
-
-            deadline = time.monotonic() + APPROVAL_SECONDS + 5
-            while consent.poll() is None and time.monotonic() < deadline:
                 with self._lock:
                     if self._state != "opening" or self._session_id != sid:
                         return
-                time.sleep(.05)
-            if consent.poll() is None or consent.returncode != 0:
-                self._fail_open(sid, "Native-session approval denied or timed out.")
-                return
+                    self._grant_id = grant["grant_id"]
+                    self._opened_at = grant["opened_at"]
+                    self._max_session_seconds = grant["duration_seconds"]
+            else:
+                consent = subprocess.Popen(
+                    [sys.executable, "-m", "termylo.native_approval", "--hours",
+                     str(self._max_session_seconds / 3600), "--project", self._project_id],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    env=_environment(),
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                with self._lock:
+                    if self._state != "opening" or self._session_id != sid:
+                        self._stop([consent])
+                        return
+                    self._consent_proc = consent
+                deadline = time.monotonic() + APPROVAL_SECONDS + 5
+                while consent.poll() is None and time.monotonic() < deadline:
+                    with self._lock:
+                        if self._state != "opening" or self._session_id != sid:
+                            return
+                    time.sleep(.05)
+                if consent.poll() is None or consent.returncode != 0:
+                    self._fail_open(sid, "Native-session approval denied or timed out.")
+                    return
 
             powershell = _system_powershell()
             assert powershell
@@ -295,9 +326,14 @@ class NativeSession:
                 if self._state != "opening" or self._session_id != sid:
                     self._stop([native])
                     return
+                if self._approval is not None and not self._approval.valid(self._grant_id):
+                    self._close_locked("Universal approval expired during terminal startup.")
+                    self._stop([native])
+                    return
                 self._state = "active"
                 self._reason = "Owner-approved native Windows PowerShell console is running."
-                self._opened_at = time.monotonic()
+                if self._approval is None:
+                    self._opened_at = time.monotonic()
             threading.Thread(
                 target=self._monitor, args=(sid,), daemon=True,
                 name="termylo-native-monitor",
@@ -338,7 +374,8 @@ class NativeSession:
         """
         with self._lock:
             if (self._state != "active" or self._session_id != sid or
-                    time.monotonic() - self._opened_at >= self._max_session_seconds):
+                    time.monotonic() - self._opened_at >= self._max_session_seconds or
+                    (self._approval is not None and not self._approval.valid(self._grant_id))):
                 return False
             previous = self._console_proc
             self._state = "recovering"
@@ -377,7 +414,8 @@ class NativeSession:
                 raise RuntimeError("Recovered native console not ready.")
             with self._lock:
                 if (self._state == "recovering" and self._session_id == sid and
-                        time.monotonic() - self._opened_at < self._max_session_seconds):
+                        time.monotonic() - self._opened_at < self._max_session_seconds and
+                        (self._approval is None or self._approval.valid(self._grant_id))):
                     self._console_proc = fresh
                     self._pipe_name = pipe
                     self._state = "active"
