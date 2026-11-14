@@ -111,6 +111,12 @@ class NativeSession:
         return None
 
 
+    def _project_environment(self) -> dict[str, str]:
+        """Give each native PowerShell process an independent environment."""
+        env = _environment()
+        env["TERMYLO_PROJECT_ID"] = self._project_id
+        return env
+
     def _expire_reason(self) -> str | None:
         if self._state not in ("active", "recovering"):
             return None
@@ -266,7 +272,7 @@ class NativeSession:
                 [powershell, "-NoLogo", "-NoProfile", "-File",
                  str(script), "-PipeName", pipe_name],
                 cwd=self._working_directory or str(Path.home()),
-                env=_environment(),
+                env=self._project_environment(),
                 creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
                 stdin=None, stdout=None, stderr=None,
             )
@@ -359,7 +365,7 @@ class NativeSession:
             fresh = subprocess.Popen(
                 [powershell, "-NoLogo", "-NoProfile", "-File",
                  str(script), "-PipeName", pipe],
-                cwd=self._working_directory or str(Path.home()), env=_environment(),
+                cwd=self._working_directory or str(Path.home()), env=self._project_environment(),
                 creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
                 stdin=None, stdout=None, stderr=None,
             )
