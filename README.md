@@ -2,7 +2,7 @@
 
 **Your personal Windows PowerShell bridge for MCP clients.** No paid automation service, remote desktop, dashboard, browser, or subscription. Runs only while you start its MCP connection.
 
-Termylo's default workflow: **AI requests a command → you approve one native PowerShell session (if none is active) → subsequent commands reuse that exact terminal until the lease expires → output and exit code return to the AI.** The server doesn't listen on a network port. Per-command approval is still available explicitly.
+Termylo's default workflow: **AI requests a command → you approve ONE universal native lease → all project PowerShell terminals can open or be reused without new approval popups until that shared lease expires → output and exit code return to the AI.** The server doesn't listen on a network port. Per-command approval is still available explicitly.
 
 ## Tools
 
@@ -20,16 +20,17 @@ Termylo's default workflow: **AI requests a command → you approve one native P
 | `open_native_session` | Request local approval, then open a real native Windows PowerShell console. |
 | `native_session_status` | Inspect the native console state and its session ID. |
 | `execute_native_powershell(session_id, command, timeout_seconds)` | Run commands in the same PowerShell process, preserving variables and working directory. |
-| `close_native_session(session_id)` | Revoke the session and close the console. |
+| `close_native_session(session_id)` | Close only that project's native PowerShell console; the universal approval remains. |
+| `revoke_universal_native_approval()` | Revoke the shared approval and close all project consoles at once. |
 
 The two-step request/result process prevents MCP timeouts while you read the approval window. One command per project can be active at a time; different projects execute independently. Finished results expire after 15 minutes.
 
 ## Native authorization policy (four-hour default)
 
-- **One explicit local approval** starts an authorized native PowerShell session. The default `execute_powershell` tool reuses that session, including across long idle periods.
+- **ONE explicit local approval covers ALL native project terminals**. The default `execute_powershell` tool routes to its own persistent project console without further approval popups while the shared lease is active.
 - The default lease lasts **14,400 seconds (four hours) after approval**; an explicit duration_hours can set a different lifetime when opening a new session. No idle timer, keepalive commands or repeated approval are required during the lease.
 - The **remaining_seconds** value in `native_session_status` counts down the absolute lease. `idle_limit_seconds` is `null`; there is no `idle_remaining_seconds` for native sessions.
-- **Manual revocation remains immediate**: close the native console or call `close_native_session(session_id)`. A four-hour expiry disables remote access and retains the terminal for local use when it can safely revoke its named pipe; if IPC revocation fails, it terminates the console.
+- **Manual revocation remains immediate**: call `revoke_universal_native_approval()` to close all project windows and end the shared lease. Closing just one console or calling `close_native_session(session_id)` closes only that project's console and does not revoke the global approval. A four-hour expiry disables remote access and retains the terminal for local use when it can safely revoke its named pipe; if IPC revocation fails, it terminates the console.
 - Native session approval applies only while the machine is running, the tunnel is connected and the remote session exists. A Windows restart, tunnel restart, terminal closure, or failed safety recovery can end it early. Ordinary command timeouts/cancellations now attempt to replace the stopped PowerShell console under the same unexpired approval; PowerShell variables and working directory are reset if recovery succeeds. **Approval does not last forever and does not renew automatically.**
 - A long-running command that crosses the absolute deadline is cancelled and its console can be closed. The four-hour limit does not turn a command into an unattended persistent daemon.
 - The separate `open_visible_session` tool still has its own older limits. Its behavior has not changed.
@@ -320,7 +321,8 @@ one project still execute one at a time in its own persistent PowerShell state.
 
 - Default approval lifetime: 4 hours, **no idle timeout**.
 - Custom lifetime: call open_native_session(project_id="Axtario",
-  duration_hours=10) before approving the new terminal.
+  duration_hours=10) BEFORE the first universal approval. All projects then
+  share that original 10-hour clock; opening later windows does not reset it.
 - Reuse: call native_session_status(project_id="Axtario") to get its
   session_id; execute_powershell(command="...", project_id="Axtario")
   automatically reuses its current approved window.
@@ -331,9 +333,10 @@ one project still execute one at a time in its own persistent PowerShell state.
   "default" terminal. To isolate real ChatGPT projects, supply a stable
   project_id on every call. MCP does not automatically receive the ChatGPT
   conversation URL or project ID from the platform.
-- An active terminal retains its initially approved lifetime even if a
-  subsequent request specifies a different duration. New duration requests
-  apply to newly opened sessions.
+- An active universal approval retains its original absolute expiration
+  even when a later request specifies a different duration. A new duration
+  takes effect only after the universal lease expires or is revoked and
+  the owner gives a new physical approval.
 
 Each project owns its separate PowerShell process, working-directory state,
 session ID, process environment, and FIFO command queue. Commands queued for
@@ -346,4 +349,14 @@ terminal so that the window starts in the correct repository. Each process
 has independent directory/environment state and its own TERMYLO_PROJECT_ID
 environment marker. This is process isolation, not a filesystem-access rule.
 
-Legacy per-command and visible-session tools are otherwise unchanged.
+A single owner consent popup is displayed when the first native project
+terminal starts without an active shared approval. The approval explicitly
+covers **all native project consoles**, including additional windows opened
+later. Every new project still has a different terminal process, working
+directory, session ID, environment, and FIFO command queue. Closing one
+project's console does NOT invalidate the shared approval or other windows.
+To stop native access across all projects, explicitly call
+`revoke_universal_native_approval()`; the native lease also expires
+automatically without an idle timeout.
+
+Legacy explicit per-command and visible-session tools are otherwise unchanged.
