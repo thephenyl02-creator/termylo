@@ -5,6 +5,7 @@ from .jobs import JobManager
 from .visible import VisibleSession
 from .native import NativeSession
 from .project_sessions import ProjectSessions
+from .universal_approval import UniversalApproval
 from .default_shell import execute_default_native
 
 mcp = FastMCP(
@@ -12,6 +13,9 @@ mcp = FastMCP(
     instructions=(
         "Personal Windows PowerShell utility. Execute only user-requested commands. "
         "The default is a persistent owner-approved native PowerShell console. "
+        "A SINGLE physical Windows approval covers ALL independent native project "
+        "terminals until the original shared four-hour expiry (or requested custom "
+        "duration). Opening more project windows does NOT prompt again. "
         "IMPORTANT: Set project_id to the stable ChatGPT project name/key on each "
         "native or default command, status and session-open call. Two conversations "
         "in one project MUST use the same project_id and reuse the same window. "
@@ -21,8 +25,8 @@ mcp = FastMCP(
         "For legacy clients, omitted project_id means 'default'. "
         "Native approval lasts four hours by default, with NO idle timeout. "
         "When requested, open a session using duration_hours (for example 10). "
-        "A current approval is reused unchanged; an expired one needs a new physical "
-        "Windows approval. The owner approves ONCE per native terminal, not per command. "
+        "A current UNIVERSAL approval is reused unchanged; an expired one needs a new physical "
+        "Windows approval. The owner approves ONCE for ALL native project terminals, not per terminal. "
         "Use working_directory when the project's known directory should be restored "
         "when a new session starts. Preserve native PowerShell state across commands. "
         "The per-command mode remains explicit and the visible legacy mode remains intact. "
@@ -32,15 +36,17 @@ mcp = FastMCP(
 )
 jobs = JobManager()
 visible = VisibleSession()
-native = NativeSession()
-projects = ProjectSessions(native)
+universal_approval = UniversalApproval()
+native = NativeSession(approval=universal_approval)
+projects = ProjectSessions(native, approval=universal_approval)
 
 @mcp.tool()
 def termylo_status(project_id: str = "default") -> dict:
     """Read-only bridge health, project terminal mapping, and approval status."""
     key, shell = projects.get(project_id)
     result = jobs.status()
-    result["approval"] = "single local approval per native project session"
+    result["approval"] = "one owner approval covering all native project terminals"
+    result["universal_approval"] = universal_approval.status()
     result["native_session"] = shell.status()
     result["project_id"] = key
     result["project_sessions"] = projects.list_status()
@@ -61,7 +67,7 @@ def execute_powershell(command: str, timeout_seconds: int = 90,
     key, shell, issue = projects.prepare(project_id, duration_hours, working_directory)
     if issue:
         return issue
-    approved = shell.status()["status"] == "active"
+    approved = shell.status()["status"] == "active" or universal_approval.status()["status"] == "active"
     result = jobs.submit(
         command, timeout_seconds, project_id=key,
         runner=lambda c, t, cancel_event: execute_default_native(shell, c, t, cancel_event),
@@ -75,7 +81,7 @@ def execute_powershell(command: str, timeout_seconds: int = 90,
             result["message"] = "Using existing approved PowerShell for this project; call powershell_result(job_id)."
         else:
             result["status"] = "awaiting_approval"
-            result["message"] = "Approve one native SESSION on Windows; then call powershell_result(job_id)."
+            result["message"] = "Approve the ONE universal native session on Windows; then call powershell_result(job_id)."
     return result
 
 
@@ -126,16 +132,20 @@ def open_native_session(project_id: str = "default", duration_hours: float = 4,
                         working_directory: str | None = None) -> dict:
     """Open or reuse the real Windows PowerShell window belonging to project_id.
     Multiple ChatGPT conversations with that same project_id reuse this window.
-    Separate projects get separate windows. One local APPROVE SESSION click is
-    required only for a NEW session. Native sessions default to four hours with
-    no idle timeout; request duration_hours=10 for ten hours. An existing active
-    approval retains its original expiry. Optional working_directory is reused
+    Separate projects get separate windows. A single physical APPROVE SESSION
+    click covers ALL project terminals for the entire universal approval lease.
+    Opening additional project windows does NOT open another approval dialog.
+    Native approval defaults to four hours without an idle timeout; request
+    duration_hours=10 BEFORE the first approval for ten hours. A current
+    universal approval retains its original expiry. Optional working_directory is reused
     for future new windows belonging to that project.
     """
     key, shell, issue = projects.prepare(project_id, duration_hours, working_directory)
     if issue:
         return issue
-    return {"project_id": key, **shell.start()}
+    result = {"project_id": key, **shell.start()}
+    result["universal_approval"] = universal_approval.status()
+    return result
 
 
 @mcp.tool()
@@ -145,7 +155,8 @@ def native_session_status(project_id: str = "default") -> dict:
     session_id identifies the shared native window and its remaining lifetime.
     """
     key, shell = projects.get(project_id)
-    return {**shell.status(), "project_id": key}
+    return {**shell.status(), "project_id": key,
+            "universal_approval": universal_approval.status()}
 
 
 @mcp.tool()
@@ -175,9 +186,9 @@ def execute_native_powershell(session_id: str, command: str, timeout_seconds: in
 
 @mcp.tool()
 def close_native_session(session_id: str, project_id: str | None = None) -> dict:
-    """Close the specified project's native PowerShell terminal and revoke its
-    approval. Other project windows are left alone. session_id can resolve its
-    owning project when project_id is omitted.
+    """Close only the specified project's PowerShell window. The shared universal
+    approval remains valid for other projects until expiry or explicit revocation.
+    session_id can resolve its owning project when project_id is omitted.
     """
     match = projects.by_session_id(session_id) if project_id is None else projects.get(project_id)
     if match is None:
@@ -185,6 +196,15 @@ def close_native_session(session_id: str, project_id: str | None = None) -> dict
     key, shell = match
     return {"project_id": key, **shell.close(session_id)}
 
+
+@mcp.tool()
+def revoke_universal_native_approval() -> dict:
+    """End the current shared native approval and close all its project terminals.
+    This is an explicit optional owner action; it does not affect one-shot mode.
+    """
+    result = projects.close_all()
+    result["universal_approval"] = universal_approval.status()
+    return result
 
 
 def main() -> None:
