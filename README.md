@@ -335,4 +335,15 @@ one project still execute one at a time in its own persistent PowerShell state.
   subsequent request specifies a different duration. New duration requests
   apply to newly opened sessions.
 
+Each project owns its separate PowerShell process, working-directory state,
+session ID, process environment, and FIFO command queue. Commands queued for
+one project run in submission order; powershell_result(job_id) reports queued
+and a position until they begin. Different projects can execute in parallel.
+Queued commands can be cancelled before execution.
+
+Provide the project's actual working_directory when first opening its native
+terminal so that the window starts in the correct repository. Each process
+has independent directory/environment state and its own TERMYLO_PROJECT_ID
+environment marker. This is process isolation, not a filesystem-access rule.
+
 Legacy per-command and visible-session tools are otherwise unchanged.
