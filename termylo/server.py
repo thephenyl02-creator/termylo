@@ -16,7 +16,7 @@ mcp = FastMCP(
         "native or default command, status and session-open call. Two conversations "
         "in one project MUST use the same project_id and reuse the same window. "
         "Different projects MUST use different project_id values, and use independent "
-        "terminal processes and concurrent execution queues. Project ID is passed "
+        "terminal processes and independent FIFO command queues. Project ID is passed "
         "explicitly by the assistant; it is not automatically obtained from a chat URL. "
         "For legacy clients, omitted project_id means 'default'. "
         "Native approval lasts four hours by default, with NO idle timeout. "
@@ -69,7 +69,9 @@ def execute_powershell(command: str, timeout_seconds: int = 90,
     if result.get("job_id"):
         result["execution_mode"] = "persistent_native"
         result["project_id"] = key
-        if approved:
+        if result.get("status") == "queued":
+            result["message"] = "Queued behind earlier commands for this project; call powershell_result(job_id)."
+        elif approved:
             result["message"] = "Using existing approved PowerShell for this project; call powershell_result(job_id)."
         else:
             result["status"] = "awaiting_approval"
@@ -84,7 +86,7 @@ def execute_powershell_once(command: str, timeout_seconds: int = 90) -> dict:
 
 @mcp.tool()
 def powershell_result(job_id: str) -> dict:
-    """Retrieve output, stderr, and exit code for an earlier execute_powershell job. Returns pending until approved/executed."""
+    """Retrieve output, stderr, and exit code for an earlier command. Returns queued position until its project queue reaches the job."""
     return jobs.result(job_id)
 
 @mcp.tool()
