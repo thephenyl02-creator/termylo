@@ -18,12 +18,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hours", type=float, default=4)
     parser.add_argument("--project", default="default")
+    parser.add_argument("--universal", action="store_true")
     args = parser.parse_args()
     duration_label = f"{args.hours:g} hours"
     project_label = str(args.project)[:80]
 
     root = tk.Tk()
-    root.title(f"Termylo — authorize PowerShell: {project_label}")
+    root.title("Termylo — authorize ALL project PowerShell windows"
+               if args.universal else f"Termylo — authorize PowerShell: {project_label}")
     root.geometry("760x325")
     root.minsize(620, 300)
     root.attributes("-topmost", True)
@@ -38,21 +40,30 @@ def main() -> int:
 
     root.protocol("WM_DELETE_WINDOW", lambda: close(False))
     tk.Label(
-        root, text="AUTHORIZE REAL POWERSHELL SESSION?",
+        root, text=("AUTHORIZE ALL PROJECT POWERSHELL SESSIONS?"
+                    if args.universal else "AUTHORIZE REAL POWERSHELL SESSION?"),
         font=("Segoe UI", 15, "bold"), fg="#facc15", bg="#101820",
     ).pack(padx=20, pady=(18, 10), anchor="w")
     tk.Label(
         root,
         text=(
-            "A genuine Windows PowerShell console will open on this PC.\n"
-            "You can type commands directly in that console.\n"
-            "ChatGPT can execute additional commands in the SAME PowerShell process "
-            "without asking again while the session stays active.\n"
-            "These commands run as your Windows user and can change files, "
-            "install software, or access services.\n"
-            f"Project: {project_label}. Approval lasts up to {duration_label} from activation, even if idle. "
-            "There is no idle timeout. Close the console or explicitly revoke "
-            "the session to end remote access sooner."
+            ("This ONE approval covers new and existing Termylo project terminals.\n"
+             "Each project keeps a separate PowerShell process and working directory.\n"
+             "ChatGPT can open and execute in more project windows without additional popups.\n"
+             "Commands run as your Windows user and can modify files or services.\n"
+             f"The shared approval lasts {duration_label} from your click, even if idle. "
+             "Closing one terminal does not revoke approval for other projects. "
+             "Use the revoke universal approval action to end access to ALL projects."
+             if args.universal else
+             "A genuine Windows PowerShell console will open on this PC.\n"
+             "You can type commands directly in that console.\n"
+             "ChatGPT can execute additional commands in the SAME PowerShell process "
+             "without asking again while the session stays active.\n"
+             "These commands run as your Windows user and can change files, "
+             "install software, or access services.\n"
+             f"Project: {project_label}. Approval lasts up to {duration_label} from activation, even if idle. "
+             "There is no idle timeout. Close the console or explicitly revoke "
+             "the session to end remote access sooner.")
         ),
         bg="#101820", fg="#e5e7eb",
         font=("Segoe UI", 10), wraplength=705, justify="left",
