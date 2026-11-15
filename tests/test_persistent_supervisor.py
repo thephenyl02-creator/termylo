@@ -158,19 +158,21 @@ def test_expiry_is_absolute_not_extended_by_new_worker():
 def test_cli_revoke_does_not_stop_the_tunnel(monkeypatch):
     operations = []
     monkeypatch.setattr(control, "rpc",
-        lambda op, **kwargs: (operations.append(op) or {"status": "closed"}))
+        lambda op, **kwargs: (operations.append(op) or
+                              {"status": "active" if op == "status" else "closed"}))
     assert control.revoke()["status"] == "revoked"
-    assert operations == ["revoke"]
+    assert operations == ["status", "revoke"]
 
 
 def test_cli_stop_revokes_then_stops_tunnel_then_supervisor(monkeypatch):
     events = []
     monkeypatch.setattr(control, "rpc",
-        lambda op, **kw: (events.append(op) or {"status": "closed"}))
+        lambda op, **kw: (events.append(op) or
+                          {"status": "active" if op == "status" else "closed"}))
     monkeypatch.setattr(control, "stop_tunnel",
                         lambda: (events.append("tunnel-stop") or 1))
     assert control.stop()["status"] == "stopped"
-    assert events == ["revoke", "tunnel-stop", "stop", "ping"]
+    assert events == ["status", "revoke", "tunnel-stop", "stop", "ping"]
 
 
 def test_restart_is_delegated_to_supervisor(monkeypatch):
@@ -326,3 +328,28 @@ def test_mcp_lists_explicit_six_hour_replacement_tool(tmp_path):
                 names = {tool.name for tool in (await session.list_tools()).tools}
                 assert "replace_universal_native_approval" in names
     asyncio.run(check())
+
+
+def test_legacy_approval_revoke_disconnects_tunnel_instead_of_false_success(monkeypatch):
+    active = [True]
+    events = []
+    monkeypatch.setattr(control, "rpc",
+                        lambda op, **kw: (events.append(op) or {"status": "closed"}))
+    monkeypatch.setattr(control, "tunnel_pids",
+                        lambda: [101] if active[0] else [])
+    def stop_legacy():
+        active[0] = False
+        events.append("tunnel-stop")
+        return 1
+    monkeypatch.setattr(control, "stop_tunnel", stop_legacy)
+    result = control.revoke()
+    assert result["status"] == "legacy_access_disconnected"
+    assert events == ["status", "revoke", "tunnel-stop"]
+    assert not active[0]
+
+
+def test_revoke_no_approval_and_no_tunnel_is_noop(monkeypatch):
+    monkeypatch.setattr(control, "rpc",
+                        lambda op, **kw: {"status": "closed"})
+    monkeypatch.setattr(control, "tunnel_pids", lambda: [])
+    assert control.revoke()["status"] == "already_closed"

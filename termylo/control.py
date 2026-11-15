@@ -51,11 +51,33 @@ def start_tunnel() -> dict:
             "approval": "not_granted_by_start"}
 
 def revoke() -> dict:
+    """Revoke active supervised approval, or fail closed on a legacy worker.
+
+    A pre-supervisor MCP worker can still have an in-memory approval even
+    when the new supervisor reports CLOSED. In that transitional state,
+    disconnect the old tunnel rather than claiming an ineffective revoke.
+    """
+    previous = None
     try:
+        previous = rpc("status", start=False)
         result = rpc("revoke", start=False)
-        return {"status": "revoked", "approval": result.get("status")}
+        if previous.get("status") in {"active", "opening"}:
+            return {"status": "revoked", "approval": result.get("status")}
     except (Unavailable, OSError):
-        return {"status": "already_closed"}
+        pass
+    # No active supervisor lease, but an older MCP worker might still have
+    # one. Removing the remote tunnel is the safe backwards-compatible action.
+    if tunnel_pids():
+        killed = stop_tunnel()
+        if tunnel_pids():
+            return {"status": "error",
+                    "error": "Unable to disconnect the legacy MCP tunnel."}
+        return {"status": "legacy_access_disconnected",
+                "tunnel_processes_stopped": killed,
+                "note": "Old MCP authorization could not be revoked in memory; "
+                        "the remote tunnel was shut down instead. Existing "
+                        "local PowerShell windows may remain open."}
+    return {"status": "already_closed"}
 
 def stop() -> dict:
     approval = revoke()

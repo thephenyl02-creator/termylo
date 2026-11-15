@@ -77,3 +77,40 @@ This is development-branch code. It is not yet running in the active bridge.
 
 ## Verification before activation
 Development tests: 148 existing Termylo tests passed (three batches); 13 supervisor/control tests passed; 46 Context Engine tests passed, one symlink test skipped. This includes 4h-to-6h replacement, closing old windows, unchanged service-restart deadline, cross-process supervisor reconnection, and cancellation of old pending jobs. No actual 6h approval was requested on the owner's live service. Initial activation still requires one new Windows approval because the pre-supervisor grant cannot be transferred safely.
+
+
+## Windows Run links and desktop icons (November 15, 2026)
+
+Windows Run (Win + R), paste exactly one of:
+- termylo://start: launch the Termylo tunnel. No automatic owner approval.
+- termylo://stop: show local Yes/No confirmation, then shut down Termylo.
+- termylo://revoke: show local Yes/No confirmation, then revoke authorization.
+
+Exact allowlisted URIs only, with no query, fragment or shell commands.
+The existing current-user protocol handler points to scripts/uri_launch.py.
+
+Desktop shortcut files created on this Windows account:
+Termylo - Start.lnk; Termylo - Stop.lnk;
+Termylo - Revoke Approval.lnk. Each runs the fixed local CLI script.
+
+### Legacy MCP bridge compatibility
+
+An old MCP worker can have an active in-memory grant when the new supervisor
+reports a closed grant. In that case Termylo Revoke fails closed: it disconnects
+the old secure tunnel rather than falsely claiming success. This cuts remote
+access but leaves older local PowerShell windows open. Once the updated MCP
+worker is activated, Revoke cancels the supervisor grant while leaving the
+tunnel online. Stop shuts down the tunnel.
+
+### Existing orphaned PowerShell windows
+
+A read-only audit found six native-console PowerShell processes:
+two owned by the current MCP worker, four attached to a dead old parent.
+One of the orphaned shells has Axtario, Node.js and Chrome children, and
+MUST NOT be killed blindly. The three remaining old shells have only their
+console hosts, but may contain manually typed shell state; no cleanup was
+performed. The new Job Object ownership prevents the same leak for shells
+spawned after activation, not the older orphaned shells.
+
+Windows autostart is still disabled. Clicking Start does not auto-click
+or bypass the owner authorization prompt.

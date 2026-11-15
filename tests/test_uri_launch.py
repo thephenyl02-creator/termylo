@@ -20,6 +20,9 @@ spec.loader.exec_module(uri_launch)
     "termylo://start",
     "termylo://start/",
     "TERMYLO://START",
+    "termylo://stop",
+    "termylo://revoke",
+    "TERMYLO://REVOKE/",
 ])
 def test_allowlisted_uri(uri):
     assert uri_launch.valid_uri(uri)
@@ -28,7 +31,8 @@ def test_allowlisted_uri(uri):
 @pytest.mark.parametrize("uri", [
     "",
     "https://example.com",
-    "termylo://stop",
+    "termylo://stop?command=whoami",
+    "termylo://revoke?force=yes",
     "termylo://start?command=whoami",
     "termylo://start#cmd",
     "termylo://start/anything",
@@ -81,3 +85,30 @@ def test_real_windows_launch_arguments_never_include_untrusted_uri(monkeypatch):
     assert "startupinfo" not in opts
     assert opts["stdout"] == subprocess.DEVNULL
     assert opts["stderr"] == subprocess.DEVNULL
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows shutdown UI")
+def test_shutdown_uri_requires_local_confirmation(monkeypatch):
+    called = []
+    monkeypatch.setattr(uri_launch, "confirm_local_shutdown", lambda action: False)
+    monkeypatch.setattr(uri_launch.subprocess, "run",
+                        lambda *args, **kwargs: called.append(args))
+    assert uri_launch.main(["termylo://stop"]) == 0
+    assert uri_launch.main(["termylo://revoke"]) == 0
+    assert not called
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows shutdown UI")
+def test_confirmed_shutdown_has_fixed_executable_and_no_url_args(monkeypatch):
+    from types import SimpleNamespace
+    called = []
+    monkeypatch.setattr(uri_launch, "confirm_local_shutdown", lambda action: True)
+    monkeypatch.setattr(uri_launch.subprocess, "run",
+                        lambda cmd, **kwargs:
+                        (called.append((cmd, kwargs)) or SimpleNamespace(returncode=0)))
+    assert uri_launch.main(["termylo://stop"]) == 0
+    cmd, kwargs = called[0]
+    assert cmd[-1] == "stop"
+    assert cmd[0].endswith("termylo.exe")
+    assert "termylo://" not in " ".join(cmd)
+    assert kwargs["creationflags"] & subprocess.CREATE_NO_WINDOW
