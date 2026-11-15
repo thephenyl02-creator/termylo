@@ -1,42 +1,36 @@
-# Terminal Context Engine - Windows add-on package
+﻿# Termylo Context Engine: integrated Windows runtime
 
-User-facing product: **Terminal Context Engine**, installed through Termylo.
-It is NOT an installation of the upstream desktop search application.
+TCE is an internal source-maintained part of **Termylo**. Users install and interact with Termylo only. TCE runs as an internal, locally approved helper process; it is not another desktop application, service, or separate product.
 
-- Install: `powershell -File scripts/install-terminal-context.ps1 -WithModel`
-- Verify: `powershell -File scripts/install-terminal-context.ps1 -Verify`
-- Command: `python -m termylo.context_package status --verify`
-- Optional model: `python -m termylo.context_package models` (resumes downloads)
-- Install directory: `%LOCALAPPDATA%\Termylo\ContextEngine`
-- Model directory: `%LOCALAPPDATA%\Termylo\ContextEngine\models`
-- Internal command-line engine: `bin\digup.exe` (not exposed as a separate desktop app)
-- Default: search/indexing/watchers all DISABLED until the user selects roots and enables.
+Architecture: ChatGPT -> Termylo MCP -> TCE adapter -> internal tce.exe -> local index and EmbeddingGemma 2.
 
-After activating the updated Termylo MCP service, use `context_setup`
-to configure only approved folders, then `context_preflight`, `context_enable`,
-`context_index`, `context_search`, and `context_verify`.
-The active Termylo service is not restarted by this installation.
+The native engine is built from modified code at `tce-native/`, including the CLI, indexer, search service, model runtime, PDF, image, audio, and video readers. It is not the upstream executable renamed.
 
-### Verified user-device installation, November 15, 2026
+## Setup
 
-- Official Windows CLI archive SHA-256: 013ee9bdc08eb1256cb1b49b0ec11549ae7929f07536e18fbc14fe46d6059fe1
-- Extracted internal CLI SHA-256: 8b8055bb6a5218f994d44fecc0564843efd3128af95551e9be36c686d2b54f2a
-- Two model files: 309,855,456 and 554,821,024 bytes; both full SHA-256 verified.
-- Real local indexing and keyword+semantic search passed on a synthetic sample.
-- JSONL search-service handshake, encoder loading and result returned successfully.
+- `context_setup` configures approved roots and, if necessary, installs the pinned Termylo-owned runtime to `%LOCALAPPDATA%\Termylo\ContextEngine\bin\tce.exe`.
+- Or run `scripts/install-terminal-context.ps1 -WithModel` from Termylo.
+- The installer checks the archive and each native file against SHA-256.
+- Models: `%LOCALAPPDATA%\Termylo\ContextEngine\models`, about 865 MB, separately verified.
+- Search and indexing remain disabled until `context_preflight`, `context_enable`, then `context_index` or `context_search`.
+- `context_disable` turns off search. The native approval and project terminal windows are independent.
 
-### Attribution
+## Video retrieval
 
-The native CLI is a component of DigUp by Abdur Rahim, released under MIT.
-Its MIT license is preserved at `bin\SEARCH-ENGINE-MIT-LICENSE.txt`, and the
-upstream `THIRD-PARTY-NOTICES.txt` is included. EmbeddingGemma 2 model
-assets originate from `ggml-org/embeddinggemma-2-GGUF` pinned revision,
-with their own applicable open licenses. This is a Termylo-packaged add-on,
-not an original rewrite of that upstream search implementation.
+TCE uses one persistent search-service process. For video queries it requests a relevance threshold of 1.25 rather than starting an extra model process. These are candidate frame/segment matches, not complete understanding of an entire movie. Query latency after model warmup was about 0.02-0.06 seconds in the controlled tests. Large folder indexing still takes time.
 
-Do not bundle model weights in the base Termylo pip package. Downloads are
-opt-in and validated before acceptance. Installer and index do not install
-or launch any separate graphical search application.
+## Native build
 
-### Large folder indexing
-Pass optional `limit=20` to `context_index` for a safe first batch. This limits embedding work per indexing pass but initial folder enumeration still scans the requested root. Full Downloads indexing may take multiple hours and should not be described as complete after one batch.
+Windows x64 requires Swift 6.3.3, Visual Studio C++ Build Tools and Windows SDK, native model runtime, and vendor libraries. In `tce-native/`, run `scripts/fetch-vendor.sh` and `scripts/build-llama.sh` then `swift build -c release --product tce`. The repository release bundles its TCE executable, dependent DLLs, ffmpeg/ffprobe and licenses. No Swift compiler is needed by end users.
+
+## Verification
+
+- 112 native Swift tests passed, including video/image/indexing.
+- 228 Python tests passed; 1 symlink test skipped for Windows privileges.
+- Controlled known-answer retrieval: 13/13 correctly ranked top-1.
+- Fresh indexing of three MP4s succeeded.
+- False-positive rejection remains imperfect (10 of 12 negative queries returned matches). Results must be verified.
+
+## Attribution
+
+The TCE source is a maintained derivative of the MIT-licensed DigUp work by Abdur Rahim. Preserve the original copyright and MIT terms. Model assets have their own licenses. Attribution does not make DigUp a runtime dependency.

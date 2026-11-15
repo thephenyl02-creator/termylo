@@ -110,11 +110,11 @@ else
   esac
   # Shared libraries, the backends as modules (every CPU variant, so one build fits any x86-64 or arm64 machine).
   cmake -S "$SOURCE" -B "$BUILD" -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Release "${COMPILERS[@]}" \
-    -DBUILD_SHARED_LIBS=ON -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DGGML_NATIVE=OFF "${GPU[@]}" \
+    -DBUILD_SHARED_LIBS=ON -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=OFF -DGGML_NATIVE=OFF "${GPU[@]}" \
     -DLLAMA_BUILD_MTMD=ON -DLLAMA_BUILD_COMMON=OFF -DLLAMA_BUILD_TOOLS=OFF -DLLAMA_BUILD_SERVER=OFF \
     -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_UI=OFF -DLLAMA_OPENSSL=OFF \
     -DLLAMA_CURL=OFF > /dev/null
-  cmake --build "$BUILD" --config Release -j "$(nproc)" > /dev/null
+  cmake --build "$BUILD" --config Release -j "${TCE_BUILD_JOBS:-6}" > /dev/null
   rm -rf "$OUT/lib" && mkdir -p "$OUT/lib" "$OUT/include"
   if [[ $OS == MINGW* || $OS == MSYS* ]]; then
     # The DLLs (the backends among them), and the import libraries the helper links against.

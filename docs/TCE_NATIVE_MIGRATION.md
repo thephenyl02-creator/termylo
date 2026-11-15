@@ -1,4 +1,18 @@
-# TCE native-source migration and parity gate
+> **Update: native migration complete in source and package.**
+> The sections below record earlier migration decisions and initial blockers.
+> They are historical, not the current runtime status.
+>
+> The modified TCE source now builds on Windows x64 with Swift 6.3.3.
+> Its optimized `tce.exe` has been built and tested with real multimodal indexes.
+> The Termylo adapter uses `TCE_MODELS` and the persistent TCE search
+> service; its old video subprocess fallback has been removed. The
+> Termylo-owned runtime ZIP is signed by pinned SHA-256 integrity metadata,
+> installed to the internal ContextEngine directory, and does not include the
+> upstream executable. Both command-line and video retrieval have been verified.
+> 112 native Swift tests passed; 230 Python tests passed, with one Windows
+> symlink permission skip. The historical statements below about missing
+> Swift builds or the old bridge no longer apply to the current source.
+># TCE native-source migration and parity gate
 
 **Date:** November 15, 2026
 **Branch:** feature/tce-native-full-migration

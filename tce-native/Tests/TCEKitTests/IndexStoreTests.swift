@@ -112,6 +112,8 @@ import WinSDK
         #expect(ModelFiles.totalBytes == 864_676_480)
     }
 
+    // Windows developer mode is not required by TCE; this symlink-only test runs on other OSes.
+    #if !os(Windows)
     @Test func modelFilesComeFromTheHuggingFaceCacheWhenThere() throws {
         // As `hf download` leaves them: snapshots/<revision>/<name> → a blob. Sparse, so no disk is used.
         let hub = folder.appendingPathComponent("hub")
@@ -131,6 +133,8 @@ import WinSDK
         try FileHandle(forWritingTo: blob).truncate(atOffset: 10)
         #expect(ModelFiles.cachedCopy(of: ModelFiles.text) == nil)    // not whole
     }
+
+    #endif
 
     @Test func syncKeepsTheRowsOfAFolderThatWentAway() throws {
         // The real path (/private/var/…), as the crawler reports it; resolvingSymlinksInPath() would drop "/private".

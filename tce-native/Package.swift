@@ -1,11 +1,21 @@
 // swift-tools-version: 6.2
 import PackageDescription
+import Foundation
 
 // TCE builds on macOS (the app, the CLI and its helpers) and, since the port, the engine and the CLI on
 // Linux and Windows too. The manifest picks each platform's pieces: how llama.cpp is linked, the C libraries the engine
 // needs where Apple's frameworks aren't there (SQLite, stb, miniz, PDFium: scripts/fetch-vendor.sh puts them in
 // Vendor/), and the app, which is macOS only.
 let vendor = "\(Context.packageDirectory)/Vendor"
+let windowsSwiftCRTIncludes: [String] = {
+    #if os(Windows)
+    let paths = (ProcessInfo.processInfo.environment["INCLUDE"] ?? "").split(separator: ";")
+    return paths.filter { $0.lowercased().hasSuffix("\\ucrt") }
+                .flatMap { ["-Xcc", "-I" + String($0)] }
+    #else
+    return []
+    #endif
+}()
 
 #if os(macOS)
 let llamaModule = "Sources/CLlama"                        // static llama.cpp with Metal (scripts/build-llama.sh)
@@ -32,20 +42,28 @@ let llamaLink: [LinkerSetting] = [.unsafeFlags(["-L\(vendor)/llama/lib"] + runpa
 let engineDependencies: [Target.Dependency] = ["CSQLite", "CStb", "CMiniz", "CPDFium"]
 let testDependencies: [Target.Dependency] = ["CMiniz"]   // the portable readers' tests write zips with it
 let engineLink: [LinkerSetting] = [.unsafeFlags(["-L\(vendor)/pdfium/lib"] + runpath)]
+let windowsCIncludes: [CSetting] = {
+    #if os(Windows)
+    let paths = ProcessInfo.processInfo.environment["INCLUDE"] ?? ""
+    return paths.split(separator: ";").map { .unsafeFlags(["-I", String($0)]) }
+    #else
+    return []
+    #endif
+}()
 let portableTargets: [Target] = [
     // SQLite with FTS5 (Windows has no system SQLite, Linux's may lack FTS5 or its headers).
     .target(name: "CSQLite", path: "Vendor/sqlite", cSettings: [
         .define("SQLITE_ENABLE_FTS5"), .define("SQLITE_THREADSAFE", to: "1"), .define("SQLITE_DQS", to: "0"),
         .define("SQLITE_OMIT_LOAD_EXTENSION"), .unsafeFlags(["-w"]),
-    ]),
+    ] + windowsCIncludes),
     // Image decoding, resizing and PNG/JPEG writing (stb_image, stb_image_resize2, stb_image_write). On Windows its file
     // names are UTF-8, opened through the wide-character calls (else a Bengali or Arabic name won't open).
     .target(name: "CStb", path: "Vendor/stb", cSettings: [
         .define("STBI_WINDOWS_UTF8", .when(platforms: [.windows])),
         .define("STBIW_WINDOWS_UTF8", .when(platforms: [.windows])), .unsafeFlags(["-w"]),
-    ]),
+    ] + windowsCIncludes),
     // Zip reading, for docx and odt (spreadsheets and presentations too: OfficeText).
-    .target(name: "CMiniz", path: "Vendor/miniz", cSettings: [.unsafeFlags(["-w"])]),
+    .target(name: "CMiniz", path: "Vendor/miniz", cSettings: [.unsafeFlags(["-w"])] + windowsCIncludes),
     // PDF text and page rendering (Chromium's PDFium, prebuilt).
     .systemLibrary(name: "CPDFium", path: "Sources/CPDFium"),
 ]
@@ -84,7 +102,9 @@ let package = Package(
     targets: portableTargets + [
         // The engine: crawler, extractors, index store, the embedder interface and worker client, search. No UI.
         // Platform/ holds what differs by OS (Apple's frameworks on macOS, the C libraries above elsewhere).
-        .target(name: "TCEKit", dependencies: engineDependencies, linkerSettings: engineLink),
+        .target(name: "TCEKit", dependencies: engineDependencies,
+
+                linkerSettings: engineLink),
         // llama.cpp (scripts/build-llama.sh builds it into Vendor/llama) and EmbeddingGemma 2 on it.
         .systemLibrary(name: "CLlama", path: llamaModule),
         .target(name: "LlamaRuntime", dependencies: ["CLlama", "TCEKit"], linkerSettings: llamaLink),

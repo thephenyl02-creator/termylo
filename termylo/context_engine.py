@@ -1,6 +1,6 @@
 """Terminal Context Engine: optional, local multimodal content search.
 
-DigUp is an external MIT-licensed search engine, not part of this package.
+TCE is the source-maintained internal multimodal engine of Termylo.
 No voice, extra embedding model, GUI, installation, or network service is added.
 Search results are candidates. File references must be verified before actions.
 """
@@ -97,7 +97,12 @@ class ContextProject:
         self.directory = directory
         self.directory.mkdir(parents=True, exist_ok=True)
         self.config_path = directory / "config.json"
-        self.index_path = directory / "digup-index"
+        self.index_path = directory / "tce-index"
+        legacy = directory / "digup-index"
+        if legacy.exists() and not self.index_path.exists():
+            if legacy.is_symlink() or not legacy.is_dir():
+                raise ContextError("Unsafe legacy context index.")
+            legacy.rename(self.index_path)
         self._lock = threading.RLock()
         self._process: subprocess.Popen | None = None
         self._messages: queue.Queue[dict] = queue.Queue()
@@ -172,7 +177,7 @@ class ContextProject:
     def environment(self) -> dict:
         env = dict(os.environ)
         if self._config.get("models_dir"):
-            env["DIGUP_MODELS"] = self._config["models_dir"]
+            env["TCE_MODELS"] = self._config["models_dir"]
         return env
 
     def _stop_process(self, proc: subprocess.Popen | None, job) -> None:
@@ -300,42 +305,6 @@ class ContextProject:
                         self.close()
                 return
             time.sleep(.25)
-
-    def video_fallback(self, query: str, limit: int) -> dict:
-        """A bounded, locally-approved CLI retry for video misses.
-
-        DigUp 0.7 beta.3 search-service has a fixed z-gate of 2.0.
-        Its CLI supports --zgate, so this retry only runs when the
-        fast video-filtered search found no candidates.
-        """
-        args = [self._config["executable"], "search", query,
-                "--index", str(self.index_path), "--kind", "video",
-                "--zgate", "1.25", "-n", str(limit), "--json"]
-        proc, job = self._launch(args, pipes=True)
-        try:
-            deadline = time.monotonic() + 70
-            while True:
-                if not self._lease_valid():
-                    raise ContextError("Project authorization expired during video search.")
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise ContextError("Video fallback exceeded 70 seconds.")
-                try:
-                    output, _ = proc.communicate(timeout=min(0.5, remaining))
-                    break
-                except subprocess.TimeoutExpired:
-                    continue
-            if proc.returncode != 0:
-                raise ContextError("Video search subprocess failed.")
-            try:
-                hits = json.loads(output)
-            except (ValueError, TypeError) as exc:
-                raise ContextError("Video search returned invalid JSON.") from exc
-            if not isinstance(hits, list):
-                raise ContextError("Video search returned malformed hits.")
-            return {"hits": hits}
-        finally:
-            self._stop_process(proc, job)
 
     def request(self, data: dict, roots: tuple[Path, ...]) -> dict:
         with self._lock:
@@ -714,11 +683,10 @@ class TerminalContextEngine:
                        "prefix_last": not meaning, "limit": limit}
             if selected_kind:
                 request["kinds"] = [selected_kind]
+            relaxed_video = selected_kind == "video" and bool(meaning)
+            if relaxed_video:
+                request["zgate"] = 1.25
             response = project.request(request, roots)
-            relaxed_video = False
-            if selected_kind == "video" and meaning and not response.get("hits"):
-                response = project.video_fallback(query, limit)
-                relaxed_video = True
         except ContextError as exc:
             return {"status": "error", "error": str(exc), "project_id": key}
         if not project._lease_valid():

@@ -44,7 +44,7 @@ report `outcome_unknown`: verify side effects before manually rerunning.
 No automatic execution replay occurs.
 
 The existing four-hour no-idle approval and native project sessions
-remain unchanged. DigUp is not included in this release.
+remain unchanged. The native TCE fork is maintained in this repository; the original upstream executable is not bundled.
 
 **Recovery note:** The SQLite job journal is optional. If its directory is inaccessible or the database is corrupted, Termylo still starts and `termylo_status.job_journal` reports `unavailable`. Managed PowerShell stdout/stderr uses UTF-8, and project filters are case-insensitive. A saved job status never automatically replays a command.
 
@@ -390,7 +390,7 @@ The native PowerShell bridge works normally without any search model.
 Terminal Context Engine is OFF by default; configuration never downloads
 or starts it. Owner opt-in requires explicit configuration, read-only SHA-256
 preflight and context_enable. After that, context_index and context_search
-reuse the upstream DigUp keyword/multimodal search engine. For optional
+use the source-built internal TCE keyword/multimodal engine. For optional
 metadata-only file-change updates, explicitly activate context_watch;
 otherwise no background watcher runs. context_disable stops it.
 
@@ -403,8 +403,8 @@ total 864,676,480 bytes and are NOT bundled or installed in this build.
 See docs/TERMINAL_CONTEXT_ENGINE.md and
 docs/TERMINAL_CONTEXT_ENGINE_BUILD_AUDIT.md.
 
-## Optional Terminal Context Engine installer (0.5.0a3)
-Install the Termylo-managed search package with `scripts/install-terminal-context.ps1 -WithModel`. It uses a bundled command-line search runtime, with third-party licenses preserved; there is no separate desktop search app. Model files remain optional and search stays OFF until context_setup and context_enable. Verify with `scripts/install-terminal-context.ps1 -Verify`. See docs/TERMINAL_CONTEXT_ENGINE_INSTALLATION.md.
+## Integrated Termylo Context Engine (TCE)
+Install the Termylo-managed search package with `scripts/install-terminal-context.ps1 -WithModel`. It installs the Termylo-owned, source-built native TCE runtime internally, retaining its MIT attribution. There is no separate search application or legacy executable fallback. Model files remain optional and search stays OFF until context_setup and context_enable. Verify with `scripts/install-terminal-context.ps1 -Verify`. See docs/TERMINAL_CONTEXT_ENGINE_INSTALLATION.md.
 
 
 ### Termylo quick controls

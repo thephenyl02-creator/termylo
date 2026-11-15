@@ -130,6 +130,10 @@ final class SearchService: @unchecked Sendable {   // its state is guarded by `l
             let limit = request["limit"] as? Int ?? 40
             let wantMeaning = request["meaning"] as? Bool ?? true
             let prefixLast = request["prefix_last"] as? Bool ?? false
+            let zGate = (request["zgate"] as? NSNumber)?.doubleValue ?? 2.0
+            guard zGate.isFinite && zGate >= 0.0 && zGate <= 6.0 else {
+                throw CLIError("zgate must be between 0 and 6")
+            }
             let started = Date()
             var vector: [Float]?
             var warning: String?
@@ -149,12 +153,12 @@ final class SearchService: @unchecked Sendable {   // its state is guarded by `l
             let hits: [SearchHit]
             if code {
                 guard let codeSearcher else { return ["hits": [], "strong": 0, "meaning": false] }
-                hits = try codeSearcher.search(text, queryVector: vector, limit: limit, prefixLast: prefixLast).filter {
+                hits = try codeSearcher.search(text, queryVector: vector, limit: limit, zGate: zGate, prefixLast: prefixLast).filter {
                     FolderSelection.isSearched($0.path, folders: codeRoots, skipped: codeSkipped)
                         && FileManager.default.fileExists(atPath: $0.path)
                 }
             } else {
-                hits = try searcher.search(text, queryVector: vector, kinds: kinds, limit: limit, prefixLast: prefixLast)
+                hits = try searcher.search(text, queryVector: vector, kinds: kinds, limit: limit, zGate: zGate, prefixLast: prefixLast)
                     .filter {
                         FolderSelection.isSearched($0.path, folders: roots, skipped: skipped)
                             && !types.contains(($0.path as NSString).pathExtension.lowercased())

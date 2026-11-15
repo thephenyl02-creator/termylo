@@ -191,15 +191,23 @@ def context_inventory(project_id: str = "default", max_files: int = 10000) -> di
 @mcp.tool()
 def context_setup(roots: list[str], project_id: str = "default") -> dict:
     """Configure the installed Terminal Context Engine. No automatic activation."""
-    from .context_package import home, status
+    if universal_approval.status().get("status") != "active":
+        return {"status": "approval_required"}
+    from .context_package import home, status, install_native
     folder = home()
     report = status(folder, verify=True)
+    if report["status"] != "installed":
+        try:
+            install_native(folder)  # Termylo-managed TCE runtime, no separate app.
+            report = status(folder, verify=True)
+        except (OSError, ValueError, RuntimeError) as exc:
+            return {"status": "runtime_not_ready", "error": str(exc)[:240]}
     if report["status"] != "installed" or not report["binary_verified"]:
         return {"status": "not_installed", "message": "Install Terminal Context Engine first."}
     if not report["model"]["fully_verified"]:
         return {"status": "model_not_ready", "message": "Install optional model first."}
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
-    return context.configure(project_id, str(folder / "bin" / "digup.exe"),
+    return context.configure(project_id, str(folder / "bin" / "tce.exe"),
                              roots, models_dir=str(folder / "models"),
                              binary_sha256=manifest["internal_helper_sha256"],
                              enabled=False)

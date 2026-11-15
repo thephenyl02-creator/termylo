@@ -5,9 +5,9 @@
 #define __WINDOWS__
 #define HDC void *
 #endif
-#include "../../Vendor/pdfium/include/fpdfview.h"
-#include "../../Vendor/pdfium/include/fpdf_text.h"
-#include "../../Vendor/pdfium/include/fpdf_doc.h"
+#include "vendor/fpdfview.h"
+#include "vendor/fpdf_text.h"
+#include "vendor/fpdf_doc.h"
 #ifdef _WIN32
 #undef HDC
 #undef __WINDOWS__
