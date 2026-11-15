@@ -61,7 +61,14 @@ def engine(tmp_path):
 def configured(tce, root: Path, project="alpha", executable=None):
     result = tce.configure(project, executable or sys.executable, [str(root)])
     assert result["status"] == "configured", result
-    return result
+    # Existing protocol tests intentionally use a fake executable without
+    # model assets. Simulate completed opt-in only in this test fixture.
+    current = tce._project(project)[2]
+    current._config["enabled"] = True
+    current._verified_stamp = ("fake-assets-for-protocol-test",)
+    current._asset_stamp = lambda: ("fake-assets-for-protocol-test",)
+    current.save()
+    return {"enabled": True, **result}
 
 
 def inject_hits(monkeypatch, tce, project_id, hits):
@@ -112,7 +119,8 @@ def test_disabled_and_not_installed_states(engine, tmp_path):
     result = tce.configure("alpha", str(missing), [str(root)])
     assert result["status"] == "configured"
     assert result["installed"] is False
-    assert tce.search("alpha", "anything")["status"] == "not_installed"
+    assert tce.search("alpha", "anything")["status"] == "disabled"
+    assert tce.preflight("alpha")["status"] == "not_ready"
 
 
 def test_search_by_content_includes_metadata_sha_and_exact_reference(engine, tmp_path, monkeypatch):
@@ -446,7 +454,7 @@ def test_reconfiguration_removes_old_index_and_old_scope(engine, tmp_path, monke
     assert updated["status"] == "configured"
     assert not current.index_path.exists()
     assert updated["configured_roots"] == [str(new_root)]
-    assert tce.verify("alpha", ref)["status"] == "not_found"
+    assert tce.verify("alpha", ref)["status"] == "disabled"
 
 
 def test_hash_mutation_during_search_is_not_trusted(engine, tmp_path, monkeypatch):
@@ -537,7 +545,8 @@ def test_reconfig_and_disable_invalidate_old_references(engine, tmp_path, monkey
     inject_hits(monkeypatch, tce, "alpha", [{"path": str(file)}])
     reference = tce.search("alpha", "resume")["hits"][0]["reference"]
     assert tce.configure("alpha", sys.executable, [str(root)])["status"] == "configured"
-    assert tce.verify("alpha", reference)["status"] == "not_found"
+    assert tce.verify("alpha", reference)["status"] == "disabled"
+    configured(tce, root)
     reference = tce.search("alpha", "resume")["hits"][0]["reference"]
     assert tce.disable("alpha")["status"] == "disabled"
     assert tce.verify("alpha", reference)["status"] == "disabled"

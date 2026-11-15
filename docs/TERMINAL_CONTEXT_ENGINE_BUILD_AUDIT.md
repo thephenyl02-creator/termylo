@@ -99,3 +99,41 @@ Build: Termylo 0.5.0a1 (development; no installation or activation)
   gates. Startup configuration and plugin submission were not attempted.
 - The active Termylo service is still running its old imported code; this
   development branch was neither merged nor used to restart the service.
+
+
+## Pre-install optionality and readiness build (November 15, 2026)
+
+- Development version 0.5.0a2, branch feature/terminal-context-engine.
+- Explicit opt-in: context_configure always leaves engine disabled.
+  context_enable validates pinned executable and two model SHA-256 checksums,
+  without downloads or starting the search engine.
+- Offline read-only preflight reports missing assets, mismatched checksums,
+  required bytes and disk capacity. Release-specific CLI binary SHA-256
+  must be provided during the separate installation phase.
+- Read-only bounded project inventory counts candidate PDFs, presentations,
+  spreadsheets, images, audio, video and other files without parsing content.
+- Optional metadata-only context_watch, OFF by default. Polls only after
+  explicit opt-in; stops at approval expiry/disable, uses bounded scans,
+  and retries changes that arrive during an existing index run.
+- Search/index exclude TCE-owned configuration/index and model directories,
+  including when a user selects a broad parent folder.
+- No Windows CLI, model weights, desktop app, watcher or external service
+  was installed or activated in the live production bridge.
+- All newly introduced code should be validated against both isolated
+  tests and the existing Termylo regression suite before merging.
+
+## Final pre-install verification (November 15, 2026)
+
+- Version: 0.5.0a2 (development branch, not installed into live bridge).
+- New context-engine tests: **45 passed, 1 skipped** (Windows account
+  cannot create test symlink). Includes optional activation, offline binary
+  and model digest checks, dry-run inventory, bounded file watcher, watcher
+  retry during an active index, project permissions and isolated MCP tools.
+- Existing Termylo tests: **146 passed**, in three timed batches (64+32+50).
+- Total verified: **191 passed, 1 skipped**, no failed assertions.
+- Python compileall passed. No model assets, CLI binaries or search service
+  were installed, downloaded or activated in the current Termylo bridge.
+- Automatic file watcher is OFF by default, separate from explicit
+  context_enable. Existing PowerShell approval behavior was not changed.
+- Upstream index and model are still awaiting the separate installation,
+  checksum/source validation, and real multimodal search acceptance tests.

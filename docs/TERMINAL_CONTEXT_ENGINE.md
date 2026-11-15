@@ -1,69 +1,101 @@
-# Terminal Context Engine (TCE) — build-stage specification
+# Terminal Context Engine — optional multimodal search
 
-**Status: source built; real DigUp installation and on-device semantic inference NOT completed.**
-This is an optional Termylo capability, not a replacement for native PowerShell.
+**Development status: pre-install build. No model, executable, or plugin activation has occurred.**
 
-## Scope
+## Design decisions
 
-- Keep ChatGPT -> Termylo -> PowerShell for ordinary commands, files and Git.
-- Add one optional local DigUp/EmbeddingGemma 2 engine, controlled by Termylo MCP tools.
-- Index user-selected folders into the upstream engine's existing local index.
-- Search text, PDFs, DOCX, PPTX, XLSX, images, screenshots, audio and video
-  according to the upstream Windows CLI's supported readers.
-- Return file path/name, modification timestamp, size, filesystem locator,
-  SHA-256 of contents when within the bounded search-hash threshold,
-  content excerpt, page or media timestamp if provided by the engine.
-- Verify the exact selected file before file actions, with a full SHA-256 and
-  filesystem identity check.
-- No voice, BGE/CLIP duplicate models, separate desktop UI or second web port.
-- No automatic downloads, installation, startup at login or plugin publication.
+Terminal Context Engine (TCE) is an optional add-on to Termylo's existing
+native, locally-approved PowerShell bridge. Termylo works normally without it.
+No voice, desktop UI, extra server port, or second embedding model is created.
 
-## MCP controls
+One upstream DigUp/EmbeddingGemma 2 engine handles keyword and meaning search.
+Results are returned directly through Termylo MCP into ChatGPT. PowerShell
+continues to handle ordinary file operations. The index can support PDFs,
+Word documents, PowerPoint, spreadsheets, images, screenshots, audio and video;
+exact Windows reader coverage will be verified during installation.
 
-- context_status(project_id) — local configuration/index status. Requires approval.
-- context_configure(executable, roots, project_id, models_dir, enabled) —
-  explicitly select an absolute trusted CLI executable and approved directories.
-  This saves local configuration but DOES NOT install or download the model.
-- context_index(project_id) — trigger upstream incremental indexing as a
-  lease-bound background subprocess. Repeating while indexing is a no-op.
-- context_search(query, project_id, meaning, limit) — search approved
-  content through the upstream search-service JSON-lines protocol.
-- context_verify(reference, project_id) — verify selected result's exact
-  path, filesystem identity and full SHA-256. Never chooses by filename.
-- context_disable(project_id) — stop subprocesses, retain local index.
+## Explicit opt-in
 
-## Safety and privacy
+1. **Default:** OFF; the model is not downloaded, loaded, started, indexed,
+   or watched when Termylo starts.
+2. **context_configure:** save an explicit trusted executable path, a pinned
+   executable SHA-256, an explicit model directory, and 1-20 approved roots.
+   This still leaves TCE DISABLED. No automatic folder indexing occurs.
+3. **context_inventory:** a read-only bounded count of likely candidate formats
+   and metadata (default up to 10,000 files). Does not read file contents.
+4. **context_preflight(verify_hashes=true):** offline, read-only check of
+   the selected executable SHA-256, local file sizes, model SHA-256 checksums,
+   and approximate missing bytes / disk space. Nothing is downloaded.
+5. **context_enable:** explicit activation. Fails closed until the executable
+   and both model assets match their expected checksums. Does not start
+   indexing, a service, or a watcher; the first search or context_index does.
+6. **context_index:** request incremental indexing of approved roots.
+   A successful update reloads the live search service.
+7. **context_search:** meaning or keyword; returns bounded excerpts,
+   source paths, size, timestamps, page/time locations when provided, SHA-256
+   when below the 64 MiB search limit, and opaque exact-file references.
+8. **context_verify:** recompute full file SHA-256 and inspect filesystem
+   identity immediately before a later user-authorized operation.
+9. **context_watch(enabled=true, interval_seconds=90):** separately opt into
+   bounded metadata-only change detection, every 30-3600 seconds. Requests
+   incremental indexing on changes, stops at approval expiry or disable,
+   and rejects oversized scans. enabled=false stops the watcher.
+10. **context_disable:** stop active indexing, search processes and watcher,
+    retain local configuration and indexes. Future use requires enabling again.
 
-- Requires an existing locally approved project PowerShell session. Never
-  self-approves, extends authorization or opens an unapproved terminal.
-  Search and indexing processes stop when the grant expires.
-- Each stable project ID has separate roots, index directory and service.
-  File references cannot cross project boundaries.
-- Paths are canonicalized and checked against current approved directories
-  at result time. Symlinks outside allowed roots are rejected.
-- Search is read-only; a verified result is not authorization for file edits.
-- SHA-256 on search is deferred for files above 64 MiB; the full hash is
-  computed on verification. A deferred search-time digest cannot establish
-  historical content if filesystem metadata was deliberately falsified.
-- Result references expire after 15 minutes or bridge restart; do not
-  re-query by filename to recover a reference.
-- TCE does not maintain another content database. The upstream index stores
-  vectors/keyword evidence locally. Snippets returned to ChatGPT leave device.
-- Executable selection is explicit. Never run an arbitrary DigUp on PATH.
-- Symlink/junction behavior of upstream indexing must be checked before
-  indexing sensitive directories; result filtering alone is not enough.
+Each project has its own approved roots, index directory, search process and
+result references. Conversations in the same project reuse its PowerShell
+session as in the existing Termylo architecture.
 
-## Installation phase (later; NOT executed in this build)
+## Local model footprint (external, NOT bundled in Termylo)
 
-1. Pin/verify a compatible DigUp Windows CLI (upstream currently advertises
-   v0.7.0-beta.3; Chameleon originally pinned v0.7.0-beta.2).
-2. Validate native libraries and index/search-service JSON-lines protocol.
-3. Install and verify EmbeddingGemma 2 model files (~865 MB).
-4. Explicitly select folders and index them.
-5. Benchmark PDF, PPTX, XLSX, images, audio, videos; duplicate filenames,
-   modified/moved files, no-match cases, CPU/RAM/battery and freshness.
-6. Separately plan startup behavior and plugin submission.
+Upstream pinned EmbeddingGemma 2 Q8_0 assets:
+- embeddinggemma-2-Q8_0.gguf — 309,855,456 bytes
+- mmproj-embeddinggemma-2-Q8_0.gguf — 554,821,024 bytes
+- Total 864,676,480 bytes (~865 MB decimal; ~825 MiB).
 
-Upstream search engine: https://github.com/ARahim3/DigUp (MIT).
-Chameleon integration reference: https://github.com/SarthakPattnaik1/Chameleon/pull/7
-\nIndex refresh: a successful indexing run reloads any active search process.\n
+Revision: bfcd298762cc34d0357ece5ebdd31791a3a374d8
+Repository: ggml-org/embeddinggemma-2-GGUF.
+Model SHA-256 checksums are pinned in termylo/context_assets.py, as
+specified by upstream ModelFiles.swift. A release-specific Windows CLI
+executable SHA-256 must be supplied and verified at installation; no
+executable has been pinned or installed yet.
+
+## Privacy, performance and limits
+
+- The model and index remain local. File snippets/results sent to ChatGPT
+  are no longer device-only; configure only folders approved for this use.
+- No file text is copied to a second Termylo index. The external engine
+  owns the main keyword/vector index.
+- No automatic whole-machine scan, default watcher, installation, startup
+  at login or download.
+- The watcher uses file path, size and modified time, not content hashes;
+  manually restored metadata may evade its update detection.
+- Incomplete/oversized watcher scans stop rather than continue unbounded.
+- Search results are untrusted DATA, never instructions or edit permission.
+  Revalidate the file before a destructive operation; a file could still
+  change between verification and use.
+- File references expire in 15 minutes and never resolve by filename.
+  Large files defer full SHA-256 until verification.
+- Symlink/junction escapes are filtered from results and metadata scans.
+  Upstream Windows reparse-point indexing requires installation testing.
+- Engine-owned index/configuration and model directories are excluded
+  from upstream indexing/search using supported --exclude options.
+- Watcher and search/index processes obey the locally approved project
+  lease. Four-hour default/no idle limit are unchanged.
+
+## Remaining installation-stage acceptance tests
+
+1. Verify a Windows DigUp CLI release, native dependencies, executable
+   SHA-256, license, and exact CLI protocol.
+2. Download the two model assets only with explicit permission; check
+   full hashes, disk impact and any applicable model license terms.
+3. Index a small approved folder containing representative PDF, DOCX,
+   PPTX, XLSX, image, screenshot, audio and video examples.
+4. Benchmark duplicate filenames, search recall, page/time locations,
+   CPU/RAM, new files, watcher detection and approval expiry.
+5. After passing: merge tested branch, activate Termylo, configure
+   startup optionally, then prepare and submit the plugin.
+
+Upstream engine: https://github.com/ARahim3/DigUp (MIT).
+Chameleon reference: https://github.com/SarthakPattnaik1/Chameleon/pull/7

@@ -384,5 +384,21 @@ automatically without an idle timeout.
 
 Legacy explicit per-command and visible-session tools are otherwise unchanged.
 
-## Terminal Context Engine (experimental, not installed)
-Optional one-model multimodal file search through the same Termylo interface: context_configure, context_index, context_search, context_verify, context_status, context_disable. It requires a separately installed trusted DigUp CLI and explicit folders. No voice/UI, no model download, no auto-start. See docs/TERMINAL_CONTEXT_ENGINE.md.
+## Terminal Context Engine (optional; development preview)
+
+The native PowerShell bridge works normally without any search model.
+Terminal Context Engine is OFF by default; configuration never downloads
+or starts it. Owner opt-in requires explicit configuration, read-only SHA-256
+preflight and context_enable. After that, context_index and context_search
+reuse the upstream DigUp keyword/multimodal search engine. For optional
+metadata-only file-change updates, explicitly activate context_watch;
+otherwise no background watcher runs. context_disable stops it.
+
+Additional read-only setup controls: context_status and context_inventory.
+Results include metadata and exact-file references; context_verify performs
+full SHA-256 before a user-authorized file action. No voice, desktop GUI,
+second embedding model or automatic startup. The two external model assets
+total 864,676,480 bytes and are NOT bundled or installed in this build.
+
+See docs/TERMINAL_CONTEXT_ENGINE.md and
+docs/TERMINAL_CONTEXT_ENGINE_BUILD_AUDIT.md.

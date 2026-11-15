@@ -162,20 +162,61 @@ def context_status(project_id: str = "default") -> dict:
 @mcp.tool()
 def context_configure(executable: str, roots: list[str],
                       project_id: str = "default", models_dir: str = "",
-                      enabled: bool = True) -> dict:
+                      expected_executable_sha256: str = "") -> dict:
     """Configure ONE optional multimodal content engine for explicitly selected
     local folders in this approved project. CLI path MUST be an absolute path.
     This does not download or install anything; changing folders is deliberate.
     File excerpts returned by later searches are shared with ChatGPT.
     """
     return context.configure(project_id, executable, roots,
-                             models_dir=models_dir, enabled=enabled)
+                             models_dir=models_dir, enabled=False,
+                             binary_sha256=expected_executable_sha256)
+
+
+@mcp.tool()
+def context_inventory(project_id: str = "default", max_files: int = 10000) -> dict:
+    """Bounded read-only folder inventory before installing the 865 MB model.
+    Reports candidate counts (PDF, PPTX, XLSX, images, audio, video, etc.)
+    without extracting file contents, indexing or running an external executable.
+    """
+    return context.inventory(project_id, max_files=max_files)
+
+
+@mcp.tool()
+def context_preflight(project_id: str = "default", verify_hashes: bool = True) -> dict:
+    """Read-only, offline readiness check. Verify the explicitly selected
+    Windows executable against its expected SHA-256 and both pinned model
+    assets against upstream sizes/SHA-256. Never downloads or enables anything.
+    Set verify_hashes=false for a quick, non-authoritative preview.
+    """
+    return context.preflight(project_id, verify_hashes=verify_hashes)
+
+
+@mcp.tool()
+def context_enable(project_id: str = "default") -> dict:
+    """EXPLICIT OPT-IN: enable Terminal Context Engine only after verifying
+    a pinned CLI executable and both local EmbeddingGemma 2 model files.
+    Does not download files, start a process or index any folder by itself.
+    """
+    return context.enable(project_id)
 
 
 @mcp.tool()
 def context_disable(project_id: str = "default") -> dict:
     """Disable search and terminate its subprocesses without removing indexes."""
     return context.disable(project_id)
+
+
+@mcp.tool()
+def context_watch(project_id: str = "default", enabled: bool = False,
+                  interval_seconds: int = 90) -> dict:
+    """OPTIONAL metadata-only change detector. Off by default.
+    Explicitly enable after model setup to request bounded incremental
+    indexing when approved-folder files change; stops on expiry or disable.
+    Poll interval is 30..3600 seconds, never a background installation.
+    """
+    return context.watch(project_id, enabled=enabled,
+                         interval_seconds=interval_seconds)
 
 
 @mcp.tool()

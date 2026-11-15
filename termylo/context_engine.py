@@ -22,6 +22,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .context_assets import MODEL_ASSETS, inspect_assets
+from .context_inventory import scan_roots
+from .context_watcher import ContextWatcher
+
 MAX_HITS = 12
 MAX_EXCERPT = 600
 MAX_HASH_ON_SEARCH = 64 * 1024 * 1024
@@ -102,7 +106,10 @@ class ContextProject:
         self._index_job = None
         self._service_job = None
         self._lease_valid = lambda: False
-        self._config: dict = {"enabled": False, "executable": "", "roots": [], "models_dir": ""}
+        self._verified_stamp = None
+        self._watcher = None
+        self._config: dict = {"enabled": False, "executable": "", "roots": [],
+                              "models_dir": "", "binary_sha256": ""}
         self._load()
 
     def _load(self):
@@ -129,6 +136,32 @@ class ContextProject:
                 continue
         return tuple(result)
 
+    def _asset_stamp(self) -> tuple | None:
+        """A cheap change detector; never substitutes for first full digest."""
+        paths = [self._config.get("executable", "")]
+        folder = self._config.get("models_dir", "")
+        paths.extend([str(Path(folder) / name) for name, _, _ in MODEL_ASSETS]
+                     if folder else ["", ""])
+        result = []
+        try:
+            for raw in paths:
+                if not raw:
+                    return None
+                path = Path(raw)
+                if path.is_symlink():
+                    return None
+                st = path.stat()
+                result.append((st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns))
+            return tuple(result)
+        except (OSError, ValueError):
+            return None
+
+    def asset_check(self, *, verify_hashes: bool = True) -> dict:
+        return inspect_assets(self._config.get("executable", ""),
+                              self._config.get("models_dir", ""),
+                              self._config.get("binary_sha256", ""),
+                              verify_hashes=verify_hashes)
+
     def installed(self) -> bool:
         name = self._config.get("executable", "")
         return bool(name and Path(name).is_absolute() and Path(name).is_file())
@@ -154,6 +187,9 @@ class ContextProject:
 
     def close(self):
         with self._lock:
+            if self._watcher is not None:
+                self._watcher.stop()
+                self._watcher = None
             if self._index_status == 'indexing':
                 self._index_status = 'stopped'
             self._stop_process(self._index, self._index_job)
@@ -230,9 +266,12 @@ class ContextProject:
         self._service_job = None
         self._messages = queue.Queue()
         self._ensure_index_dir()
+        excludes = ["--exclude", str(self.directory)]
+        if self._config.get("models_dir"):
+            excludes += ["--exclude", self._config["models_dir"]]
         proc, job = self._launch(
             [self._config["executable"], "search-service", "--index",
-             str(self.index_path), *roots_as_text], pipes=True)
+             str(self.index_path), *excludes, *roots_as_text], pipes=True)
         self._process, self._service_job = proc, job
         self._started_roots = roots_as_text
         output = self._messages
@@ -281,7 +320,7 @@ class ContextProject:
     def index(self, roots: tuple[Path, ...], *, grant_valid) -> dict:
         with self._lock:
             if self._index is not None and self._index.poll() is None:
-                return {"status": "indexing"}
+                return {"status": "indexing", "already_running": True}
             if not self.installed():
                 return {"status": "not_installed"}
             if not grant_valid():
@@ -290,8 +329,11 @@ class ContextProject:
                 self._ensure_index_dir()
             except (ContextError, OSError) as exc:
                 return {"status": "error", "error": str(exc)[:180]}
+            excludes = ["--exclude", str(self.directory)]
+            if self._config.get("models_dir"):
+                excludes += ["--exclude", self._config["models_dir"]]
             args = [self._config["executable"], "index", "--index",
-                    str(self.index_path), *(str(x) for x in roots)]
+                    str(self.index_path), *excludes, *(str(x) for x in roots)]
             try:
                 proc, job = self._launch(args)
             except OSError as exc:
@@ -337,18 +379,25 @@ class ContextProject:
                             self._index_error = "Search refresh failed; will restart: " + str(exc)[:120]
             threading.Thread(target=watch, daemon=True,
                              name="termylo-context-index").start()
-            return {"status": "indexing"}
+            return {"status": "indexing", "already_running": False}
 
     def status(self) -> dict:
+        assets = self.asset_check(verify_hashes=False)
         return {
             "enabled": self._config["enabled"],
             "installed": self.installed(),
+            "model_files_present": all(item["state"] == "present_unverified"
+                                       for item in assets["models"]),
+            "model_bytes_expected": assets["total_model_bytes"],
+            "model_bytes_remaining": assets["additional_model_bytes"],
             "configured_roots": list(self._config["roots"]),
             "search_model": "upstream EmbeddingGemma 2 (external)",
             "index_directory": str(self.index_path),
             "index_status": self._index_status,
             "index_error": self._index_error,
             "service_running": self._process is not None and self._process.poll() is None,
+            "watcher": self._watcher.status() if self._watcher else
+                       {"active": False, "state": "off"},
         }
 
 
@@ -388,10 +437,19 @@ class TerminalContextEngine:
         return key, project, None
 
     def configure(self, project_id: str, executable: str, roots: list[str],
-                  *, models_dir: str = "", enabled: bool = True) -> dict:
+                  *, models_dir: str = "", enabled: bool = False,
+                  binary_sha256: str = "") -> dict:
         key, project, failure = self._authorize(project_id)
         if failure:
             return failure
+        if enabled is not False:
+            return {"status": "rejected", "error":
+                    "Configuration never activates the optional engine. Use context_enable."}
+        if binary_sha256 and (not isinstance(binary_sha256, str) or
+                              len(binary_sha256) != 64 or
+                              any(x not in "0123456789abcdef"
+                                  for x in binary_sha256.lower())):
+            return {"status": "rejected", "error": "Expected executable SHA-256 must be 64 hex digits."}
         if not isinstance(roots, list) or not roots or len(roots) > 20:
             return {"status": "rejected", "error": "Select 1 to 20 search folders."}
         if not isinstance(executable, str) or not Path(executable).is_absolute():
@@ -411,6 +469,7 @@ class TerminalContextEngine:
             return {"status": "rejected", "error": str(exc)[:180]}
         with project._lock:
             project.close()
+            project._verified_stamp = None
             old_roots = tuple(project._config.get("roots", []))
             if old_roots and old_roots != tuple(sorted(set(resolved))):
                 if project.index_path.is_symlink() or (
@@ -426,13 +485,61 @@ class TerminalContextEngine:
                 project._index_status = "not_started"
                 project._index_last = 0.0
             project._config = {
-                "enabled": bool(enabled), "executable": str(Path(executable)),
-                "roots": sorted(set(resolved)), "models_dir": models_dir}
+                "enabled": False, "executable": str(Path(executable)),
+                "roots": sorted(set(resolved)), "models_dir": models_dir,
+                "binary_sha256": binary_sha256.lower()}
             project.save()
             with self._lock:
                 self._refs = {token: ref for token, ref in self._refs.items()
                               if ref.project != key}
             return {"status": "configured", "project_id": key, **project.status()}
+
+    def inventory(self, project_id: str, *, max_files: int = 10000) -> dict:
+        key, project, failure = self._authorize(project_id)
+        if failure:
+            return failure
+        roots = project.roots()
+        if not roots:
+            return {"status": "no_roots", "project_id": key}
+        if isinstance(max_files, bool) or not isinstance(max_files, int):
+            return {"status": "rejected", "error": "max_files must be an integer"}
+        try:
+            excludes = [self.home]
+            if project._config.get("models_dir"):
+                excludes.append(Path(project._config["models_dir"]))
+            result = scan_roots(roots, max_files=max_files, exclude=tuple(excludes))
+        except (OSError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)[:160]}
+        if not self._lease_check(key, self._grant_ids[key])():
+            return {"status": "approval_required"}
+        return {"project_id": key, **result}
+
+    def preflight(self, project_id: str, *, verify_hashes: bool = True) -> dict:
+        key, project, failure = self._authorize(project_id)
+        if failure:
+            return failure
+        result = project.asset_check(verify_hashes=verify_hashes)
+        return {"project_id": key, **result,
+                "note": "Read-only local verification; no downloads or installation."}
+
+    def enable(self, project_id: str) -> dict:
+        key, project, failure = self._authorize(project_id)
+        if failure:
+            return failure
+        with project._lock:
+            # Read the full 865 MB model hash once at explicit opt-in time.
+            checked = project.asset_check(verify_hashes=True)
+            if not checked["ready"]:
+                return {"status": "not_ready", "project_id": key,
+                        "problems": checked["problems"],
+                        "additional_model_bytes": checked["additional_model_bytes"]}
+            if not project.roots():
+                return {"status": "no_roots", "project_id": key}
+            project._config["enabled"] = True
+            project._verified_stamp = project._asset_stamp()
+            project.save()
+            return {"status": "enabled", "project_id": key,
+                    "message": "Opt-in enabled. Indexing begins only when explicitly requested or searched."}
 
     def disable(self, project_id: str) -> dict:
         key, project, failure = self._authorize(project_id)
@@ -441,6 +548,7 @@ class TerminalContextEngine:
         with project._lock:
             project.close()
             project._config["enabled"] = False
+            project._verified_stamp = None
             project.save()
             with self._lock:
                 self._refs = {token: ref for token, ref in self._refs.items()
@@ -459,6 +567,13 @@ class TerminalContextEngine:
             return key, project, (), failure
         if not project._config["enabled"]:
             return key, project, (), {"status": "disabled"}
+        if project._verified_stamp is None or project._verified_stamp != project._asset_stamp():
+            checked = project.asset_check(verify_hashes=True)
+            if not checked["ready"]:
+                project.close()
+                return key, project, (), {"status": "not_ready",
+                                          "problems": checked["problems"]}
+            project._verified_stamp = project._asset_stamp()
         if not project.installed():
             return key, project, (), {"status": "not_installed",
                                      "message": "Install and verify the external search CLI first."}
@@ -478,6 +593,47 @@ class TerminalContextEngine:
             except Exception:
                 return False
         return valid
+
+    def watch(self, project_id: str, *, enabled: bool = False,
+              interval_seconds: int = 90) -> dict:
+        key, project, failure = self._authorize(project_id)
+        if failure:
+            return failure
+        if not enabled:
+            with project._lock:
+                if project._watcher is not None:
+                    project._watcher.stop()
+                    project._watcher = None
+            return {"status": "stopped", "project_id": key,
+                    "message": "No background folder watcher."}
+        if (isinstance(interval_seconds, bool) or
+            not isinstance(interval_seconds, int) or
+            not 30 <= interval_seconds <= 3600):
+            return {"status": "rejected",
+                    "error": "Watcher interval must be 30..3600 seconds."}
+        key, project, roots, failure = self._ready(key)
+        if failure:
+            return failure
+        with project._lock:
+            if project._watcher is not None:
+                if project._watcher.status()["active"]:
+                    return {"project_id": key, **project._watcher.status()}
+                project._watcher.stop()
+            model_folder = project._config.get("models_dir", "")
+            excludes = [self.home]
+            if model_folder:
+                excludes.append(Path(model_folder))
+            watcher = ContextWatcher(
+                roots, exclude=tuple(excludes),
+                interval_seconds=interval_seconds,
+                allowed=self._lease_check(key, self._grant_ids[key]),
+                index_changed=lambda: self.index(key),
+            )
+            result = watcher.start()
+            if result["state"] != "watching":
+                return {"status": result["state"], "project_id": key, **result}
+            project._watcher = watcher
+            return {"status": "watching", "project_id": key, **result}
 
     def index(self, project_id: str) -> dict:
         key, project, roots, failure = self._ready(project_id)
