@@ -37,3 +37,6 @@ not an original rewrite of that upstream search implementation.
 Do not bundle model weights in the base Termylo pip package. Downloads are
 opt-in and validated before acceptance. Installer and index do not install
 or launch any separate graphical search application.
+
+### Large folder indexing
+Pass optional `limit=20` to `context_index` for a safe first batch. This limits embedding work per indexing pass but initial folder enumeration still scans the requested root. Full Downloads indexing may take multiple hours and should not be described as complete after one batch.

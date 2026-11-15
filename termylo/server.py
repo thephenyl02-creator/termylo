@@ -238,11 +238,11 @@ def context_watch(project_id: str = "default", enabled: bool = False,
 
 
 @mcp.tool()
-def context_index(project_id: str = "default") -> dict:
+def context_index(project_id: str = "default", limit: int | None = None) -> dict:
     """Schedule upstream incremental indexing of approved folders, without
     blocking the PowerShell terminal. Requires current local approval.
     """
-    return context.index(project_id)
+    return context.index(project_id, limit=limit)
 
 
 @mcp.tool()

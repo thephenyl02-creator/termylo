@@ -317,7 +317,7 @@ class ContextProject:
                 self._service_job = None
                 raise ContextError(str(exc)[:240]) from exc
 
-    def index(self, roots: tuple[Path, ...], *, grant_valid) -> dict:
+    def index(self, roots: tuple[Path, ...], *, grant_valid, limit: int | None = None) -> dict:
         with self._lock:
             if self._index is not None and self._index.poll() is None:
                 return {"status": "indexing", "already_running": True}
@@ -334,6 +334,8 @@ class ContextProject:
                 excludes += ["--exclude", self._config["models_dir"]]
             args = [self._config["executable"], "index", "--index",
                     str(self.index_path), *excludes, *(str(x) for x in roots)]
+            if limit is not None:
+                args += ["--limit", str(limit)]
             try:
                 proc, job = self._launch(args)
             except OSError as exc:
@@ -635,14 +637,17 @@ class TerminalContextEngine:
             project._watcher = watcher
             return {"status": "watching", "project_id": key, **result}
 
-    def index(self, project_id: str) -> dict:
+    def index(self, project_id: str, *, limit: int | None = None) -> dict:
         key, project, roots, failure = self._ready(project_id)
         if failure:
             return failure
+        if limit is not None and (isinstance(limit, bool) or
+                                  not isinstance(limit, int) or not 1 <= limit <= 1000):
+            return {"status": "rejected", "error": "limit must be 1..1000 or null"}
         grant_id = self._grant_ids[key]
         project._lease_valid = self._lease_check(key, grant_id)
         return {"project_id": key, **project.index(
-            roots, grant_valid=self._lease_check(key, grant_id))}
+            roots, grant_valid=self._lease_check(key, grant_id), limit=limit)}
 
     def search(self, project_id: str, query: str, *,
                meaning: bool = True, limit: int = 6) -> dict:

@@ -613,3 +613,11 @@ def test_index_refresh_reloads_active_search_service(engine, tmp_path, monkeypat
     assert marker.exists(), "Updated search index was not reloaded"
     assert tce.status("alpha")["service_running"]
     assert tce.search("alpha", "proposal")["status"] == "ok"
+
+def test_context_index_limit_rejects_invalid_values(engine, tmp_path):
+    tce, _, _ = engine
+    root = tmp_path / 'docs'
+    root.mkdir()
+    configured(tce, root)
+    for bad in (-1, 0, 1001, True, '20'):
+        assert tce.index('alpha', limit=bad)['status'] == 'rejected'
