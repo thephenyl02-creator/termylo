@@ -27,6 +27,17 @@ try {
         return
     }
 
+    # The independent supervisor starts BEFORE its MCP tunnel worker.
+    # This process never grants PowerShell authorization automatically.
+    $python = Join-Path $root '.venv\Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+        throw 'Termylo Python environment is missing.'
+    }
+    & $python -c "from termylo.supervisor import SupervisorApproval;import sys;s=SupervisorApproval().status();sys.exit(0 if s.get('supervisor_instance') else 1)"
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Independent Termylo approval supervisor is unavailable.'
+    }
+
     # Never launch two tunnel clients for the same local MCP profile.
     $running = Get-CimInstance Win32_Process -Filter "Name='tunnel-client.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -match '(?i)\brun\b.*--profile\s+termylo\b' }

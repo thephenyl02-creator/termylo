@@ -175,3 +175,58 @@ def test_expiry_monitor_closes_idle_windows_without_status_poll(monkeypatch):
     assert len(approvals) == 2
     assert len(consoles) == 3
     assert consoles[-1].stopped is False
+def test_explicit_replacement_of_four_hours_with_six_requires_new_one_time_consent(monkeypatch):
+    consoles, approvals, _ = fake_laptop(monkeypatch)
+    grant = universal_approval.UniversalApproval()
+    registry = ProjectSessions(approval=grant)
+    active = []
+    for name in ("alpha", "beta"):
+        key, shell, issue = registry.prepare(name, 4)
+        assert issue is None
+        assert shell.start()["status"] in ("awaiting_approval", "opening")
+        state = wait_state(shell)
+        active.append((key, shell, state["session_id"]))
+    original_grant = grant.status()["grant_id"]
+    assert len(approvals) == 1
+    assert len(consoles) == 2
+
+    replaced = registry.replace_approval("alpha", duration_hours=6)
+    assert replaced["previous_approval_revoked"] is True
+    assert replaced["requested_hours"] == 6
+    assert replaced["status"] in ("awaiting_approval", "opening")
+    new_state = wait_state(active[0][1])
+    assert new_state["session_id"] != active[0][2]
+    assert grant.status()["absolute_limit_seconds"] == 21600
+    assert grant.status()["idle_limit_seconds"] is None
+    assert len(approvals) == 2  # new physical Windows approval
+    assert len(consoles) == 3
+    assert consoles[0].stopped and consoles[1].stopped
+    assert not grant.valid(original_grant)
+    assert grant.status()["grant_id"] != original_grant
+
+    # The second project reattaches under the new ONE six-hour grant.
+    _, beta, issue = registry.prepare("beta", 6)
+    assert issue is None
+    assert beta.start()["status"] in ("awaiting_approval", "opening")
+    assert wait_state(beta)["session_id"] != active[1][2]
+    assert len(approvals) == 2
+    assert len(consoles) == 4
+
+
+def test_bad_replacement_parameters_do_not_terminate_the_current_grant(monkeypatch):
+    consoles, approvals, _ = fake_laptop(monkeypatch)
+    grant = universal_approval.UniversalApproval()
+    registry = ProjectSessions(approval=grant)
+    _, shell, _ = registry.prepare("alpha", 4)
+    shell.start()
+    sid = wait_state(shell)["session_id"]
+    token = grant.status()["grant_id"]
+    for bad in (0, -1, float("inf"), float("nan"), True, "6"):
+        assert registry.replace_approval("alpha", bad)["status"] == "rejected"
+    assert registry.replace_approval(
+        "alpha", 6, working_directory="C:/__termylo_nonexistent_directory__"
+    )["status"] == "rejected"
+    assert shell.status()["session_id"] == sid
+    assert grant.valid(token)
+    assert len(approvals) == 1
+    assert not consoles[0].stopped

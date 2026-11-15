@@ -12,6 +12,8 @@ from .visible import VisibleSession
 from .native import NativeSession
 from .project_sessions import ProjectSessions
 from .universal_approval import UniversalApproval
+from .supervisor import SupervisorApproval
+import os
 from .default_shell import execute_default_native
 
 mcp = FastMCP(
@@ -48,13 +50,16 @@ def _optional_journal() -> JobJournal | None:
 
 jobs = JobManager(journal=_optional_journal())
 visible = VisibleSession()
-universal_approval = UniversalApproval()
+# The lease belongs to a restart-independent local Windows supervisor.
+# Non-Windows test harnesses continue using the existing in-memory model.
+universal_approval = SupervisorApproval() if os.name == "nt" else UniversalApproval()
 native = NativeSession(approval=universal_approval)
 projects = ProjectSessions(native, approval=universal_approval)
 managed = ManagedProcesses(universal_approval, projects, journal=jobs.journal)
 context = TerminalContextEngine(universal_approval, projects)
 atexit.register(context.close)
 atexit.register(managed.stop_all)
+atexit.register(projects.close_terminals_only)
 
 @mcp.tool()
 def termylo_status(project_id: str = "default") -> dict:
@@ -359,6 +364,39 @@ def close_native_session(session_id: str, project_id: str | None = None) -> dict
         return {"status": "not_found", "error": "No matching native session."}
     key, shell = match
     return {"project_id": key, **shell.close(session_id)}
+
+
+@mcp.tool()
+def replace_universal_native_approval(duration_hours: float = 4,
+                                      project_id: str = "default",
+                                      working_directory: str | None = None) -> dict:
+    """EXPLICIT REPLACEMENT (not a routine MCP restart).
+    If user says 'restart my four-hour session for six hours', cancel the
+    old grant and CLOSE all its project PowerShell windows. Request ONE
+    fresh Windows approval for the new duration, without extending the old
+    approval. Other projects may open fresh windows under the new shared
+    authorization after owner approval.
+    """
+    # Validate parameters before doing anything disruptive.
+    import math
+    if isinstance(duration_hours, bool) or not isinstance(duration_hours, (int, float)):
+        return {"status": "rejected", "error": "Hours must be positive and finite."}
+    if not math.isfinite(float(duration_hours) * 3600) or duration_hours <= 0:
+        return {"status": "rejected", "error": "Hours must be positive and finite."}
+    if working_directory is not None:
+        from pathlib import Path
+        try:
+            if not Path(working_directory).expanduser().resolve().is_dir():
+                return {"status": "rejected", "error": "Working directory does not exist."}
+        except (TypeError, ValueError, OSError):
+            return {"status": "rejected", "error": "Invalid working directory."}
+    # Cancel old, potentially side-effecting work before creating a new grant.
+    jobs.cancel_all()
+    managed.stop_all()
+    context.close()
+    result = projects.replace_approval(project_id, duration_hours, working_directory)
+    result["universal_approval"] = universal_approval.status()
+    return result
 
 
 @mcp.tool()

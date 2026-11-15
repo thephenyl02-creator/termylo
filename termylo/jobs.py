@@ -176,6 +176,14 @@ class JobManager:
                         "message": "Check the laptop for an approval popup or wait for execution."}
             return {"job_id": job.id, **job.result}
 
+    def cancel_all(self) -> dict:
+        """Cancel queued and active jobs before explicit global approval rotation."""
+        with self._lock:
+            pending = [job.id for job in self._jobs.values()
+                       if job.status not in TERMINAL]
+        results = [self.cancel(job_id) for job_id in pending]
+        return {"status": "cancellation_requested", "job_count": len(results)}
+
     def cancel(self, job_id: str) -> dict:
         with self._lock:
             job = self._jobs.get(job_id)

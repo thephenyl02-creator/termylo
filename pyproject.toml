@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "termylo"
-version = "0.5.0a3"
+version = "0.5.0a4"
 description = "Personal, approval-gated Windows PowerShell MCP utility"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,6 +12,7 @@ dependencies = ["mcp>=1.28,<2"]
 
 [project.scripts]
 termylo-mcp = "termylo.server:main"
+termylo = "termylo.control:main"
 termylo-doctor = "termylo.doctor:main"
 termylo-context = "termylo.context_package:main"
 

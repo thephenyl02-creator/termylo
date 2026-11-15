@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 from .runner import _environment, _is_admin, _system_powershell, _terminate_tree, validate
+from .windows_job import attach_kill_on_close
 
 MAX_SESSION_SECONDS = 4 * 60 * 60
 APPROVAL_SECONDS = 60
@@ -80,6 +81,7 @@ class NativeSession:
         self._pipe_name: str | None = None
         self._consent_proc: subprocess.Popen | None = None
         self._console_proc: subprocess.Popen | None = None
+        self._console_job = None  # Windows Job Object dies with worker, closing old console
         self._command_cancel: threading.Event | None = None
         self._opened_at = 0.0
         self._max_session_seconds = MAX_SESSION_SECONDS
@@ -144,6 +146,7 @@ class NativeSession:
         self._consent_proc = None
         self._grant_id = None
         self._console_proc = None
+        self._console_job = None
         if self._command_cancel is not None:
             self._command_cancel.set()
         self._command_cancel = None
@@ -284,11 +287,17 @@ class NativeSession:
                 creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
                 stdin=None, stdout=None, stderr=None,
             )
+            try:
+                job = attach_kill_on_close(native) if os.name == "nt" and hasattr(native, "_handle") else None
+            except Exception:
+                self._stop([native])
+                raise
             with self._lock:
                 if self._state != "opening" or self._session_id != sid:
                     self._stop([native])
                     return
                 self._console_proc = native
+                self._console_job = job
                 self._consent_proc = None
 
             # Verify the real shell is listening, not merely that Popen succeeded.
@@ -358,6 +367,7 @@ class NativeSession:
             self._state = "recovering"
             self._reason = "Recovering native console after " + cause + "."
             self._console_proc = None
+            self._console_job = None
             self._pipe_name = None
 
         if previous is not None:
@@ -383,6 +393,11 @@ class NativeSession:
                 creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
                 stdin=None, stdout=None, stderr=None,
             )
+            try:
+                fresh_job = attach_kill_on_close(fresh) if os.name == "nt" and hasattr(fresh, "_handle") else None
+            except Exception:
+                self._stop([fresh])
+                raise
             ready = _native_exchange(
                 pipe, "Write-Output 'Termylo recovery console ready'",
                 time.monotonic() + 10, threading.Event(),
@@ -394,6 +409,7 @@ class NativeSession:
                         time.monotonic() - self._opened_at < self._max_session_seconds and
                         (self._approval is None or self._approval.valid(self._grant_id))):
                     self._console_proc = fresh
+                    self._console_job = fresh_job
                     self._pipe_name = pipe
                     self._state = "active"
                     self._reason = ("Owner-approved session recovered after " + cause +

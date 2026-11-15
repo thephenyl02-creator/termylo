@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import threading
+import math
+from pathlib import Path
 from .native import NativeSession
 
 
@@ -13,6 +15,7 @@ class ProjectSessions:
             "default": default_session if default_session is not None else NativeSession(approval=approval)
         }
         self._directories: dict[str, str] = {}
+        self._replacement_lock = threading.Lock()
 
     @staticmethod
     def normalize(project_id: str | None) -> str:
@@ -50,6 +53,53 @@ class ProjectSessions:
             if native.status().get("session_id") == session_id:
                 return key, native
         return None
+
+    def close_terminals_only(self) -> dict:
+        """Close worker-owned shells on exit without revoking supervisor approval."""
+        with self._lock:
+            sessions = list(self._sessions.values())
+        closed = 0
+        for shell in sessions:
+            try:
+                sid = shell.status().get("session_id")
+                if sid:
+                    shell.close(sid)
+                    closed += 1
+            except Exception:
+                continue
+        return {"status": "closed", "closed_terminals": closed}
+
+    def replace_approval(self, project_id: str = "default",
+                         duration_hours: float = 4,
+                         working_directory: str | None = None) -> dict:
+        """Explicit replacement: close old windows, then request ONE NEW approval.
+
+        Merely restarting the MCP worker never calls this method; it preserves
+        the existing supervisor lease instead.
+        """
+        if isinstance(duration_hours, bool) or not isinstance(duration_hours, (int, float)):
+            return {"status": "rejected", "error": "Hours must be a positive number."}
+        seconds = float(duration_hours) * 3600
+        if not math.isfinite(seconds) or seconds <= 0:
+            return {"status": "rejected", "error": "Hours must be positive and finite."}
+        if working_directory is not None:
+            try:
+                if not Path(working_directory).expanduser().resolve().is_dir():
+                    return {"status": "rejected", "error": "Working directory does not exist."}
+            except (TypeError, ValueError, OSError):
+                return {"status": "rejected", "error": "Invalid working directory."}
+        with self._replacement_lock:
+            closed = self.close_all()
+            key, shell, issue = self.prepare(project_id, duration_hours, working_directory)
+            if issue:
+                return {"project_id": key, **issue,
+                        "previous_approval_revoked": True}
+            result = shell.start()
+            return {"project_id": key, **result,
+                    "previous_approval_revoked": True,
+                    "previous_project_entries_processed": closed["closed_projects"],
+                    "requested_hours": duration_hours,
+                    "message": "Old approval replaced. One fresh local Windows approval is required."}
 
     def close_all(self) -> dict:
         """Revoke universal approval and close each project terminal."""
