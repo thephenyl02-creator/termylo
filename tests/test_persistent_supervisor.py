@@ -353,3 +353,31 @@ def test_revoke_no_approval_and_no_tunnel_is_noop(monkeypatch):
                         lambda op, **kw: {"status": "closed"})
     monkeypatch.setattr(control, "tunnel_pids", lambda: [])
     assert control.revoke()["status"] == "already_closed"
+
+def test_supervisor_spawn_uses_pythonw_without_visible_console(monkeypatch, tmp_path):
+    """The Windows broker must never create additional Terminal taskbar windows."""
+    from termylo import supervisor as module
+    from multiprocessing import AuthenticationError
+    monkeypatch.setattr(module, "authkey", lambda folder: b"x" * 32)
+    class RefusesConnection:
+        def __init__(self, *args, **kwargs):
+            raise OSError("No test broker")
+    monkeypatch.setattr(module, "Client", RefusesConnection)
+    calls = []
+    class Fake:
+        pass
+    monkeypatch.setattr(module.subprocess, "Popen",
+                        lambda *args, **kwargs: (calls.append((args,kwargs)) or Fake()))
+    monkeypatch.setattr(module.time, "monotonic",
+                        iter((1, 10)).__next__)
+    monkeypatch.setattr(module.os, "name", "nt", raising=False)
+    monkeypatch.setattr(module.sys, "executable", str(tmp_path / "python.exe"))
+    (tmp_path / "pythonw.exe").touch()
+    with pytest.raises(module.Unavailable):
+        module.rpc("status", start=True, folder=tmp_path)
+    assert len(calls) == 1
+    argv = calls[0][0][0]
+    kwargs = calls[0][1]
+    assert argv[0].lower().endswith("pythonw.exe")
+    assert kwargs["creationflags"] & subprocess.CREATE_NO_WINDOW
+    assert not kwargs["creationflags"] & subprocess.DETACHED_PROCESS

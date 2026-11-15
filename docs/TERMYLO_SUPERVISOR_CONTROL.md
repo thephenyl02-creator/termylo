@@ -114,3 +114,22 @@ spawned after activation, not the older orphaned shells.
 
 Windows autostart is still disabled. Clicking Start does not auto-click
 or bypass the owner authorization prompt.
+
+## Windows Terminal extra-window fix (v0.5.0a6)
+
+On Windows systems configured to use Windows Terminal as their default
+console, launching the independent broker with python.exe and
+DETACHED_PROCESS still created a separate visible Windows Terminal window.
+Repeated development starts left three broker windows open, despite having
+only two native project PowerShell consoles. The broker is now launched
+with pythonw.exe + CREATE_NO_WINDOW and does not add a visible terminal
+when started. An isolated local broker startup test confirmed the number
+of OpenConsole.exe hosts did not increase. Existing visible broker windows
+must be closed once; this change cannot close old Windows Terminal windows
+retroactively. Any old Termylo console hosting Axtario must be left running
+or its visible window hidden without terminating Axtario.
+
+The first activation of the new MCP worker still requires a new physical
+Windows approval because its earlier in-process grant cannot be migrated
+silently. The new worker reconnects to the separate supervisor on future
+restarts.

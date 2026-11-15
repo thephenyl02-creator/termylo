@@ -124,10 +124,16 @@ def rpc(op: str, *, start=False, folder=None, **kwargs) -> dict:
     except (OSError, ConnectionError, EOFError, ValueError):
         if not start:
             raise Unavailable("Supervisor not available.")
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
-        subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    # python.exe with DETACHED_PROCESS still creates visible Windows Terminal
+    # windows when Windows Terminal is the default console host. Launch the
+    # windowless Python interpreter explicitly; no separate terminal is needed.
+    interpreter = Path(sys.executable).with_name("pythonw.exe")
+    if os.name == "nt" and not interpreter.is_file():
+        raise Unavailable("Windowless Python interpreter is missing.")
+    flags = (getattr(subprocess, "CREATE_NO_WINDOW", 0) |
+             getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
     subprocess.Popen(
-        [sys.executable, "-m", "termylo.supervisor", "serve"],
+        [str(interpreter), "-m", "termylo.supervisor", "serve"],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=str(Path(__file__).resolve().parents[1]),
