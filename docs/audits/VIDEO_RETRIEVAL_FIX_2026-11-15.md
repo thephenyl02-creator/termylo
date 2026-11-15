@@ -62,3 +62,23 @@ against the matching upstream release.
 
 Private test videos, model logs and per-file paths remain only under
 %LOCALAPPDATA%/Termylo/Audits/video-retrieval-2026-11-15/.
+
+## Final isolated MCP validation
+
+After the patch was committed, an independently initialized MCP client
+enumerated all 31 tools and confirmed `context_search.kind` appears in
+the tool input schema. Its disposable video project reused the existing
+local owner grant, completed setup/preflight/enable, finished indexing,
+and searched by visual description. `clip_01.mp4` ranked first; the
+end-to-end MCP search took 28.78 seconds. The test disabled context and
+closed only its own temporary native terminal.
+
+A separate API run on the previous mixed-media sample retrieved
+`real_mp4_02.mp4` as the only video candidate at top rank (27.98 s).
+This validates file retrieval, not independently labeled scene meaning.
+
+The fixed code is published on GitHub main, but the existing shared
+MCP worker has NOT been restarted: another active `default` project
+terminal would risk losing in-memory PowerShell state. Live activation
+therefore remains pending a safe, explicitly authorized service restart
+that preserves the supervisor approval deadline.
