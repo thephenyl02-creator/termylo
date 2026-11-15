@@ -1,0 +1,72 @@
+# Terminal Context Engine — build and test audit
+
+Date: 2026-11-14 / 2026-11-15 local
+Branch: feature/terminal-context-engine
+Build: Termylo 0.5.0a1 (development; no installation or activation)
+
+## What was built
+
+- Optional one-model multimodal content-search adapter using the upstream DigUp
+  search-service JSON-lines protocol. No secondary BGE/CLIP models or voice/UI.
+- Six MCP commands: context_configure, context_status, context_index,
+  context_search, context_verify, context_disable.
+- Explicit trusted absolute executable path, selected project folders and
+  per-project upstream index directories.
+- Background indexing; on search, refresh is requested at most once per
+  120 seconds. No continuous filesystem watcher in this build.
+- Search candidates include file name/path, size, modification time, stable-ish
+  local file locator, SHA-256 (up to 64 MiB during search), excerpt, and location.
+- Opaque 15-minute project-bound selection references and full SHA-256 check on
+  verification. No filename re-query after selecting a result.
+- Reconfigure/disable invalidates selected references. Changing approved roots
+  clears the previous Termylo-owned index. Reject redirected index directories.
+- Local approval is required. Live subprocesses are tied to original approval.
+  No automatic downloads, installation, Windows startup or plugin publication.
+
+## Tests
+
+- Existing Termylo regression suite: **146 passed**, 111.31 seconds, in a
+  separately executed batch.
+- Terminal Context Engine suite: **26 passed, 1 skipped**, 9.23 seconds.
+- Combined count across the two verified test batches: **172 passed, 1 skipped**.
+- Python module compilation and PEP 621/TOML parse: passed.
+- Isolated MCP stdio handshake: the six tools are exposed; unauthorized calls
+  fail closed without installing or launching an external executable.
+- Fake CLI full JSONL subprocess handshake, search, index, no-match, restart,
+  process cleanup and lease revocation: passed.
+- Identity tests: duplicate filenames, distinct file IDs/hashes, stale renamed
+  files, changed content despite restored modification time, cross-project
+  reference rejection, and 15-minute expiry: passed.
+- Permissions: outside-root path filtering, disabled/not-installed rejection,
+  folder changes and obsolete index cleanup: passed.
+- SHA-256: streaming hash, mid-hash mutation detection, deferred large-file
+  hash followed by full verification, and approval loss during hashing: passed.
+- Process lifetime: index cancellation on disable/expiry; service termination
+  on expiry without a follow-up search; all passed.
+
+## Limits
+
+- One Windows symlink escape test was skipped because the current Windows user
+  could not create a symlink. A separate outside-root traversal test passed.
+- Actual DigUp CLI beta, native libraries, model GGUF assets, and semantic
+  inference are **not installed**. The protocol tests use a local fake CLI.
+- PDF/PPTX/XLSX/image/audio/video search relevance, index freshness in
+  practice, performance and memory use await the installation phase.
+- An initial combined 120-second test command timed out because this Windows
+  machine's existing 146-test batch took 111 seconds. The batches were then
+  run separately to completion and both passed. The timed-out project console
+  was replaced under the original active universal approval; Termylo service
+  itself was not restarted.
+- Search-time SHA-256 is deferred above 64 MiB; verification computes full
+  SHA-256, but files with deferred hashes do not have a search-time
+  cryptographic content snapshot.
+- The upstream indexer's treatment of nested Windows junctions and external
+  symlinks must be checked before indexing sensitive folder trees.
+- This code is a development branch, NOT yet in the running MCP server.
+
+## Next phases (NOT performed)
+
+1. Install a pinned compatible DigUp CLI and model, with binary/asset hashes.
+2. Real Windows indexing and multimodal search-quality tests.
+3. Decide on installation/startup configuration.
+4. Plugin packaging, security review and submission.

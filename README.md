@@ -383,3 +383,6 @@ To stop native access across all projects, explicitly call
 automatically without an idle timeout.
 
 Legacy explicit per-command and visible-session tools are otherwise unchanged.
+
+## Terminal Context Engine (experimental, not installed)
+Optional one-model multimodal file search through the same Termylo interface: context_configure, context_index, context_search, context_verify, context_status, context_disable. It requires a separately installed trusted DigUp CLI and explicit folders. No voice/UI, no model download, no auto-start. See docs/TERMINAL_CONTEXT_ENGINE.md.
