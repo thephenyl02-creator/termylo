@@ -1,0 +1,10 @@
+{
+  "mainBinaryName": "TCE",
+  "bundle": {
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}
