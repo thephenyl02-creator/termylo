@@ -132,4 +132,17 @@ or its visible window hidden without terminating Axtario.
 The first activation of the new MCP worker still requires a new physical
 Windows approval because its earlier in-process grant cannot be migrated
 silently. The new worker reconnects to the separate supervisor on future
-restarts.
+restarts. 
+## Live Windows validation (November 15, 2026)
+Termylo v0.5.0a6: identified six visible Windows Terminal windows (three
+old supervisor windows, two Termylo native windows, one Axtario window).
+Stopped old duplicate supervisors and started one windowless broker.
+Preserved Axtario's orphan shell and Node/Chrome children, hiding its
+old console window rather than terminating applications. Closed obsolete
+MCP native consoles by verified process ID. The second live MCP restart
+reused the exact same supervisor grant without another Windows approval.
+The old new-version console was disposed and a fresh native console started.
+Final audit: one visible Termylo window, two native processes total (one
+current Termylo and one hidden Axtario legacy). Original four-hour expiry
+unchanged. Other crash and Windows Terminal configuration cases remain
+subject to testing.
