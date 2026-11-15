@@ -99,3 +99,27 @@ executable has been pinned or installed yet.
 
 Upstream engine: https://github.com/ARahim3/DigUp (MIT).
 Chameleon reference: https://github.com/SarthakPattnaik1/Chameleon/pull/7
+
+## Video-only semantic search (development enhancement, November 15, 2026)
+
+Use `context_search(query="red rectangle on blue background", kind="video")`
+to restrict matches to indexed video files. Queries explicitly mentioning
+"video", "clip", "footage", or common video extensions automatically select
+the video kind. Other file searches retain their existing behavior.
+
+The persistent DigUp search service is attempted first. DigUp v0.7.0-beta.3
+does not allow its default z-gate to be adjusted through its JSONL search
+protocol. If a meaning-based video search returns zero hits, Termylo launches
+a separate, bounded, read-only video-only CLI retry with z-gate 1.25. The
+retry uses the verified local executable/model, current index and project
+authorization; it has a 70-second hard cap and is terminated on exit or
+approval loss. Candidates still undergo approved-root, metadata and exact
+reference checks. Results expose `retrieval_mode=relaxed_video_candidate`
+and must not be presented as confirmed visual matches.
+
+This improves recall for sampled video frames but is NOT a promise of perfect
+video understanding. A cold fallback took about 27 seconds on the tested
+Windows laptop. False positives can recur on different collections, long
+videos may have unexamined frames, and video audio accuracy was not certified.
+A native configurable-threshold persistent search service is preferable
+before general production rollout.

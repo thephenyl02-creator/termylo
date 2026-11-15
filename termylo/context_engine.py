@@ -11,6 +11,7 @@ import json
 import math
 import os
 import queue
+import re
 import secrets
 import shutil
 import subprocess
@@ -32,6 +33,8 @@ MAX_HASH_ON_SEARCH = 64 * 1024 * 1024
 REF_LIFETIME = 900.0
 REF_LIMIT = 250
 REFRESH_SECONDS = 120.0
+SEARCH_KINDS = frozenset({"video", "audio", "image", "pdf", "doc", "screenshot"})
+VIDEO_INTENT = re.compile(r"\b(?:video|videos|clip|clips|footage|mp4|mov|mkv|avi|movie|movies)\b", re.I)
 
 
 class ContextError(RuntimeError):
@@ -297,6 +300,42 @@ class ContextProject:
                         self.close()
                 return
             time.sleep(.25)
+
+    def video_fallback(self, query: str, limit: int) -> dict:
+        """A bounded, locally-approved CLI retry for video misses.
+
+        DigUp 0.7 beta.3 search-service has a fixed z-gate of 2.0.
+        Its CLI supports --zgate, so this retry only runs when the
+        fast video-filtered search found no candidates.
+        """
+        args = [self._config["executable"], "search", query,
+                "--index", str(self.index_path), "--kind", "video",
+                "--zgate", "1.25", "-n", str(limit), "--json"]
+        proc, job = self._launch(args, pipes=True)
+        try:
+            deadline = time.monotonic() + 70
+            while True:
+                if not self._lease_valid():
+                    raise ContextError("Project authorization expired during video search.")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ContextError("Video fallback exceeded 70 seconds.")
+                try:
+                    output, _ = proc.communicate(timeout=min(0.5, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            if proc.returncode != 0:
+                raise ContextError("Video search subprocess failed.")
+            try:
+                hits = json.loads(output)
+            except (ValueError, TypeError) as exc:
+                raise ContextError("Video search returned invalid JSON.") from exc
+            if not isinstance(hits, list):
+                raise ContextError("Video search returned malformed hits.")
+            return {"hits": hits}
+        finally:
+            self._stop_process(proc, job)
 
     def request(self, data: dict, roots: tuple[Path, ...]) -> dict:
         with self._lock:
@@ -650,7 +689,7 @@ class TerminalContextEngine:
             roots, grant_valid=self._lease_check(key, grant_id), limit=limit)}
 
     def search(self, project_id: str, query: str, *,
-               meaning: bool = True, limit: int = 6) -> dict:
+               meaning: bool = True, limit: int = 6, kind: str | None = None) -> dict:
         key, project, roots, failure = self._ready(project_id)
         if failure:
             return failure
@@ -658,6 +697,9 @@ class TerminalContextEngine:
             return {"status": "rejected", "error": "Query must be 1 to 500 characters."}
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1 or limit > MAX_HITS:
             return {"status": "rejected", "error": "limit must be 1 to 12."}
+        if kind is not None and (not isinstance(kind, str) or kind not in SEARCH_KINDS):
+            return {"status": "rejected", "error": "Unknown file kind."}
+        selected_kind = kind or ("video" if VIDEO_INTENT.search(query) else None)
         grant_id = self._grant_ids[key]
         project._lease_valid = self._lease_check(key, grant_id)
         # Re-index on demand; upstream is responsible for incremental updates.
@@ -668,9 +710,15 @@ class TerminalContextEngine:
             except (ContextError, OSError) as exc:
                 return {"status": "error", "error": str(exc)[:180]}
         try:
-            response = project.request(
-                {"op": "search", "q": query, "meaning": bool(meaning),
-                 "prefix_last": not meaning, "limit": limit}, roots)
+            request = {"op": "search", "q": query, "meaning": bool(meaning),
+                       "prefix_last": not meaning, "limit": limit}
+            if selected_kind:
+                request["kinds"] = [selected_kind]
+            response = project.request(request, roots)
+            relaxed_video = False
+            if selected_kind == "video" and meaning and not response.get("hits"):
+                response = project.video_fallback(query, limit)
+                relaxed_video = True
         except ContextError as exc:
             return {"status": "error", "error": str(exc), "project_id": key}
         if not project._lease_valid():
@@ -681,6 +729,8 @@ class TerminalContextEngine:
             return {"status": "error", "error": "Malformed search results."}
         found = []
         for hit in raw_hits[:limit * 3]:
+            if selected_kind is not None and isinstance(hit, dict) and hit.get("kind") != selected_kind:
+                continue
             if not isinstance(hit, dict) or not isinstance(hit.get("path"), str):
                 continue
             try:
@@ -700,6 +750,12 @@ class TerminalContextEngine:
                 score = float(raw_score) if isinstance(raw_score, (int, float)) else None
                 if score is not None and not math.isfinite(score):
                     score = None
+                raw_z = hit.get("z")
+                z_score = float(raw_z) if isinstance(raw_z, (int, float)) and not isinstance(raw_z, bool) else None
+                if z_score is not None and not math.isfinite(z_score):
+                    z_score = None
+                segment = hit.get("segment")
+                segment = segment[:32] if isinstance(segment, str) else None
                 found.append({
                     "reference": token, **metadata,
                     "kind": str(hit.get("kind", ""))[:40],
@@ -707,6 +763,8 @@ class TerminalContextEngine:
                     "location": location,
                     "location_end": hit.get("loc_end") if isinstance(hit.get("loc_end"), (int, float)) else None,
                     "score": score,
+                    "z_score": z_score,
+                    "matched_segment": segment,
                 })
                 if len(found) >= limit:
                     break
@@ -714,7 +772,12 @@ class TerminalContextEngine:
                 continue
         return {"status": "ok", "project_id": key, "query": query,
                 "meaning": bool(meaning), "index_status": project._index_status,
-                "hits": found, "note": "Search results are read-only candidates; verify before modifying a file."}
+                "kind_filter": selected_kind,
+                "retrieval_mode": "relaxed_video_candidate" if relaxed_video else "strict",
+                "hits": found,
+                "note": ("Relaxed video candidates are unconfirmed; inspect the video at the returned timestamp."
+                         if relaxed_video else
+                         "Search results are read-only candidates; verify before modifying a file.")}
 
     def _trim_refs(self):
         now = time.monotonic()

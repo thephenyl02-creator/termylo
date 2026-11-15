@@ -621,3 +621,87 @@ def test_context_index_limit_rejects_invalid_values(engine, tmp_path):
     configured(tce, root)
     for bad in (-1, 0, 1001, True, '20'):
         assert tce.index('alpha', limit=bad)['status'] == 'rejected'
+
+def test_video_kind_filter_and_natural_language_inference(engine, tmp_path, monkeypatch):
+    tce, _, _ = engine
+    root = tmp_path / "clips"
+    root.mkdir()
+    clip = root / "demo.mp4"
+    clip.write_bytes(b"video bytes")
+    configured(tce, root)
+    current = tce._project("alpha")[2]
+    current._index_last = time.monotonic()
+    received = []
+
+    def request(data, roots):
+        received.append(data)
+        return {"hits": [{"path": str(clip), "kind": "video", "loc": 3.5}]}
+
+    monkeypatch.setattr(current, "request", request)
+    result = tce.search("alpha", "find a video of a red square")
+    assert result["status"] == "ok"
+    assert result["kind_filter"] == "video"
+    assert result["retrieval_mode"] == "strict"
+    assert received[-1]["kinds"] == ["video"]
+    assert result["hits"][0]["location"] == 3.5
+    assert tce.verify("alpha", result["hits"][0]["reference"])["status"] == "verified"
+    result = tce.search("alpha", "red square", kind="video")
+    assert result["kind_filter"] == "video"
+    assert tce.search("alpha", "red square", kind="exe")["status"] == "rejected"
+
+
+def test_video_fallback_is_bounded_to_video_candidates(engine, tmp_path, monkeypatch):
+    tce, _, _ = engine
+    root = tmp_path / "media"
+    root.mkdir()
+    clip = root / "relevant.mp4"
+    clip.write_bytes(b"video")
+    pdf = root / "irrelevant.pdf"
+    pdf.write_bytes(b"pdf")
+    configured(tce, root)
+    current = inject_hits(monkeypatch, tce, "alpha", [])
+    called = []
+
+    def fallback(query, limit):
+        called.append((query, limit))
+        return {"hits": [
+            {"path": str(pdf), "kind": "pdf", "score": 4.5},
+            {"path": str(clip), "kind": "video", "loc": 2.5, "score": 1.1, "z": 1.4, "segment": "frame"}]}
+
+    monkeypatch.setattr(current, "video_fallback", fallback)
+    result = tce.search("alpha", "find a video of a landscape", limit=3)
+    assert called == [("find a video of a landscape", 3)]
+    assert result["retrieval_mode"] == "relaxed_video_candidate"
+    assert [x["filename"] for x in result["hits"]] == ["relevant.mp4"]
+    assert result["hits"][0]["location"] == 2.5
+    assert result["hits"][0]["z_score"] == 1.4
+    assert result["hits"][0]["matched_segment"] == "frame"
+    assert tce.search("alpha", "unrelated", kind="pdf")["hits"] == []
+
+
+def test_video_fallback_uses_bounded_cli_and_closes_process(tmp_path, monkeypatch):
+    project = ContextProject("audit", tmp_path / "p")
+    project._config["executable"] = "digup.exe"
+    project._lease_valid = lambda: True
+    seen = {}
+    class FakeProcess:
+        returncode = 0
+        def communicate(self, timeout):
+            return (json.dumps([{"kind": "video", "path": "clip.mp4"}]), "")
+    fake = FakeProcess()
+    def launch(args, *, pipes):
+        seen["args"] = args
+        assert pipes is True
+        return fake, object()
+    monkeypatch.setattr(project, "_launch", launch)
+    monkeypatch.setattr(project, "_stop_process", lambda p, j: seen.update(cleaned=p is fake))
+    response = project.video_fallback("a red square", 4)
+    assert response["hits"][0]["kind"] == "video"
+    assert seen["args"][0] == "digup.exe"
+    assert seen["args"][1:3] == ["search", "a red square"]
+    assert seen["args"][seen["args"].index("--zgate") + 1] == "1.25"
+    assert seen["cleaned"] is True
+    project._lease_valid = lambda: False
+    with pytest.raises(module.ContextError, match="authorization expired"):
+        project.video_fallback("a red square", 4)
+    assert seen["cleaned"] is True
