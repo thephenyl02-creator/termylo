@@ -1,5 +1,6 @@
 """Termylo MCP stdio server. No public network port is opened."""
 from __future__ import annotations
+import json
 from mcp.server.fastmcp import FastMCP
 from .jobs import JobManager
 from .journal import JobJournal
@@ -180,6 +181,23 @@ def context_inventory(project_id: str = "default", max_files: int = 10000) -> di
     without extracting file contents, indexing or running an external executable.
     """
     return context.inventory(project_id, max_files=max_files)
+
+
+@mcp.tool()
+def context_setup(roots: list[str], project_id: str = "default") -> dict:
+    """Configure the installed Terminal Context Engine. No automatic activation."""
+    from .context_package import home, status
+    folder = home()
+    report = status(folder, verify=True)
+    if report["status"] != "installed" or not report["binary_verified"]:
+        return {"status": "not_installed", "message": "Install Terminal Context Engine first."}
+    if not report["model"]["fully_verified"]:
+        return {"status": "model_not_ready", "message": "Install optional model first."}
+    manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    return context.configure(project_id, str(folder / "bin" / "digup.exe"),
+                             roots, models_dir=str(folder / "models"),
+                             binary_sha256=manifest["internal_helper_sha256"],
+                             enabled=False)
 
 
 @mcp.tool()

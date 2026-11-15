@@ -402,3 +402,7 @@ total 864,676,480 bytes and are NOT bundled or installed in this build.
 
 See docs/TERMINAL_CONTEXT_ENGINE.md and
 docs/TERMINAL_CONTEXT_ENGINE_BUILD_AUDIT.md.
+
+## Optional Terminal Context Engine installer (0.5.0a3)
+Install the Termylo-managed search package with `scripts/install-terminal-context.ps1 -WithModel`. It uses a bundled command-line search runtime, with third-party licenses preserved; there is no separate desktop search app. Model files remain optional and search stays OFF until context_setup and context_enable. Verify with `scripts/install-terminal-context.ps1 -Verify`. See docs/TERMINAL_CONTEXT_ENGINE_INSTALLATION.md.
+
