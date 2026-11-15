@@ -132,7 +132,7 @@ or its visible window hidden without terminating Axtario.
 The first activation of the new MCP worker still requires a new physical
 Windows approval because its earlier in-process grant cannot be migrated
 silently. The new worker reconnects to the separate supervisor on future
-restarts. 
+restarts.
 ## Live Windows validation (November 15, 2026)
 Termylo v0.5.0a6: identified six visible Windows Terminal windows (three
 old supervisor windows, two Termylo native windows, one Axtario window).
