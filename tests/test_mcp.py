@@ -29,6 +29,17 @@ def test_real_stdio_mcp_handshake():
                 assert {"recent_jobs", "start_managed_process",
                         "managed_process_status", "list_managed_processes",
                         "stop_managed_process"} <= names
+                history = extract_result(await session.call_tool("recent_jobs", {"limit": 5}))
+                assert isinstance(history["jobs"], list)
+                no_process = extract_result(await session.call_tool("managed_process_status", {"process_id": "missing"}))
+                assert no_process["status"] == "not_found"
+                no_stop = extract_result(await session.call_tool("stop_managed_process", {"process_id": "missing"}))
+                assert no_stop["status"] == "not_found"
+                processes = extract_result(await session.call_tool("list_managed_processes", {"project_id": "isolated-test"}))
+                assert processes["processes"] == []
+                denied_managed = extract_result(await session.call_tool("start_managed_process", {
+                    "command": "Write-Output 'must not run'", "project_id": "isolated-test"}))
+                assert denied_managed["status"] == "unavailable"
                 open_tool = next(t for t in tools.tools if t.name == "open_native_session")
                 assert "project_id" in open_tool.inputSchema["properties"]
                 assert "duration_hours" in open_tool.inputSchema["properties"]

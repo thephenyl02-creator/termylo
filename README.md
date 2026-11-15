@@ -46,6 +46,8 @@ No automatic execution replay occurs.
 The existing four-hour no-idle approval and native project sessions
 remain unchanged. DigUp is not included in this release.
 
+**Recovery note:** The SQLite job journal is optional. If its directory is inaccessible or the database is corrupted, Termylo still starts and `termylo_status.job_journal` reports `unavailable`. Managed PowerShell stdout/stderr uses UTF-8, and project filters are case-insensitive. A saved job status never automatically replays a command.
+
 ## Native authorization policy (four-hour default)
 
 - **ONE explicit local approval covers ALL native project terminals**. The default `execute_powershell` tool routes to its own persistent project console without further approval popups while the shared lease is active.

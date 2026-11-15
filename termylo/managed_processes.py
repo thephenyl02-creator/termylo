@@ -4,6 +4,7 @@ Commands run in a separate PowerShell process, not the interactive native shell.
 No automatic approval is granted here, and no process is automatically restarted.
 """
 from __future__ import annotations
+import sqlite3
 
 import base64
 import os
@@ -97,7 +98,8 @@ class ManagedProcesses:
             active = [p for p in self._items.values() if p.state == "running"]
             if len(active) >= MAX_RUNNING or sum(p.project_id == key for p in active) >= MAX_PER_PROJECT:
                 return {"status": "rejected", "error": "Managed-process capacity reached."}
-            encoded = base64.b64encode(command.encode("utf-16-le")).decode("ascii")
+            prepared = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)\n' + command
+            encoded = base64.b64encode(prepared.encode("utf-16-le")).decode("ascii")
             try:
                 process = subprocess.Popen(
                     [powershell, "-NoLogo", "-NoProfile", "-NonInteractive",
@@ -212,15 +214,19 @@ class ManagedProcesses:
         with self._lock:
             item = self._items.get(process_id)
             if item is None:
-                past = self.journal.get(process_id) if self.journal is not None else None
+                try:
+                    past = self.journal.get(process_id) if self.journal is not None else None
+                except (OSError, ValueError, sqlite3.Error):
+                    past = None
                 return past if past is not None else {"status": "not_found"}
             return self._view(item, include_output=True)
 
     def list(self, project_id: str | None = None) -> dict:
         with self._lock:
             self._trim()
+            key = str(project_id).strip().casefold() if project_id is not None else None
             items = [self._view(p) for p in self._items.values()
-                     if project_id is None or p.project_id == project_id]
+                     if key is None or p.project_id == key]
             return {"processes": sorted(items, key=lambda p: -p["elapsed_seconds"])}
 
     def stop(self, process_id: str) -> dict:

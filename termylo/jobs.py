@@ -45,11 +45,20 @@ class JobManager:
                 pass
 
     def recent(self, project_id: str | None = None, limit: int = 20) -> list[dict]:
-        if self.journal is None:
-            with self._lock:
-                return [{"job_id": j.id, "project_id": j.project_id, "status": j.status}
-                        for j in list(self._jobs.values())[-max(1,min(limit,100)):]]
-        return self.journal.recent(project_id, limit)
+        key = str(project_id).strip().casefold() if project_id is not None else None
+        if self.journal is not None:
+            try:
+                return self.journal.recent(key, limit)
+            except (OSError, sqlite3.Error):
+                pass
+        with self._lock:
+            self._prune()
+            rows = [j for j in self._jobs.values()
+                    if key is None or j.project_id.casefold() == key]
+            rows.sort(key=lambda j: j.created, reverse=True)
+            return [{"job_id": j.id, "project_id": j.project_id, "status": j.status,
+                     "exit_code": (j.result or {}).get("exit_code")}
+                    for j in rows[:max(1, min(int(limit), 100))]]
 
     def _prune(self) -> None:
         now = time.monotonic()
@@ -150,7 +159,10 @@ class JobManager:
             self._prune()
             job = self._jobs.get(job_id)
             if job is None:
-                past = self.journal.get(job_id) if self.journal is not None else None
+                try:
+                    past = self.journal.get(job_id) if self.journal is not None else None
+                except (OSError, sqlite3.Error):
+                    past = None
                 return past if past is not None else {"status": "not_found", "error": "Unknown or expired job ID."}
             if job.result is None:
                 if job.status == "queued":
