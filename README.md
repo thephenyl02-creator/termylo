@@ -53,7 +53,7 @@ remain unchanged. DigUp is not included in this release.
 - **ONE explicit local approval covers ALL native project terminals**. The default `execute_powershell` tool routes to its own persistent project console without further approval popups while the shared lease is active.
 - The default lease lasts **14,400 seconds (four hours) after approval**; an explicit duration_hours can set a different lifetime when opening a new session. No idle timer, keepalive commands or repeated approval are required during the lease.
 - The **remaining_seconds** value in `native_session_status` counts down the absolute lease. `idle_limit_seconds` is `null`; there is no `idle_remaining_seconds` for native sessions.
-- **Manual revocation remains immediate**: call `revoke_universal_native_approval()` to close all project windows and end the shared lease. Closing just one console or calling `close_native_session(session_id)` closes only that project's console and does not revoke the global approval. A four-hour expiry disables remote access and retains the terminal for local use when it can safely revoke its named pipe; if IPC revocation fails, it terminates the console.
+- **Manual revocation remains immediate**: call `revoke_universal_native_approval()` to close all project windows and end the shared lease. Closing just one console or calling `close_native_session(session_id)` closes only that project's console and does not revoke the global approval. At the original expiry, remote access is revoked and all active project PowerShell windows close automatically.
 - Native session approval applies only while the machine is running, the tunnel is connected and the remote session exists. A Windows restart, tunnel restart, terminal closure, or failed safety recovery can end it early. Ordinary command timeouts/cancellations now attempt to replace the stopped PowerShell console under the same unexpired approval; PowerShell variables and working directory are reset if recovery succeeds. **Approval does not last forever and does not renew automatically.**
 - A long-running command that crosses the absolute deadline is cancelled and its console can be closed. The four-hour limit does not turn a command into an unattended persistent daemon.
 - The separate `open_visible_session` tool still has its own older limits. Its behavior has not changed.
@@ -65,7 +65,7 @@ For ongoing work like building Axtario, **`execute_powershell` now uses an exist
 - First command with no approved native session: request **one physical APPROVE SESSION** popup, then execute that queued command in the native window.
 - Subsequent commands: automatically reuse the same window, working directory, environment and shell variables. Every command is still explicit user-requested work.
 - To require a separate, individually approved PowerShell process, call **`execute_powershell_once`**.
-- A native approval lasts **four hours total, with no idle timeout**. The user can be away from the keyboard during that period while the laptop remains awake, connected, and the tunnel is online. At the four-hour limit, remote authority is revoked even if commands are running; a new approval is required for further commands. Expired consoles stay usable locally when safe, but cannot be silently reattached.
+- A native approval lasts **four hours total, with no idle timeout**. The user can be away from the keyboard during that period while the laptop remains awake, connected, and the tunnel is online. At the four-hour limit, remote authority is revoked even if commands are running; a new approval is required for further commands. Expired consoles close automatically; they cannot be silently reattached.
 - For an intentional new shell, `close_native_session` revokes the old approved one and `open_native_session` requests a new local consent.
 - Termylo uses one command slot per project; different projects can execute concurrently.
 - Updating the repository alone **does not update a running MCP server**. Restart the secure tunnel after installing v0.4.7 so the new policy is loaded. It will interrupt currently connected jobs and any approved native-session lease.
@@ -196,7 +196,7 @@ It will show a popup containing one harmless `Write-Output` command. Click **APP
 
 ## Native terminal v0.4.1: local continuity and optional history
 
-ChatGPT's native-session authorization expires after **four hours total, with no idle timeout**. On normal expiry, Termylo asks the console to dispose its local IPC pipe and **leaves the Windows PowerShell window open for local keyboard use**. A new ChatGPT session requires another physical approval and opens a **new console**, not a continuation of the former process. Explicit session closure, command cancellation/timeout, a disconnected pipe, or failure to acknowledge revocation may still terminate the window for safety.
+ChatGPT's native-session authorization expires after **four hours total, with no idle timeout**. When the shared lease expires, Termylo automatically closes all active native project PowerShell windows and revokes remote access. The next requested command requires a fresh physical approval and starts a new console. The previous session cannot be silently reattached. A custom lease duration, if approved before the lease begins, follows the same close-on-expiry behavior.
 
 Local command history is **OFF by default**, lives in memory only and records up to **40 manual commands** with bounded output/errors. Type these directly in the native PowerShell window:
 
@@ -209,7 +209,7 @@ Only when explicitly requested by the owner, ChatGPT may use `execute_native_pow
 
 ## Local error-sharing permission and opt-in auto review (v0.4.4)
 
-Termylo retains **only the most recent error** from commands typed into its native PowerShell window, in memory, automatically. **No terminal shortcut, general history setting, or auto-review toggle is required.** When you explicitly say **"There's an error—check it"** in ChatGPT, ChatGPT may run `Get-TermyloLatestError` in your **already-approved native session** to retrieve that last redacted error and diagnose it. It does not automatically upload errors or watch your terminal in the background. If the session is no longer approved, a new approval is required; an expired local-only terminal is not silently reattached.
+Termylo retains **only the most recent error** from commands typed into its native PowerShell window, in memory, automatically. **No terminal shortcut, general history setting, or auto-review toggle is required.** When you explicitly say **"There's an error—check it"** in ChatGPT, ChatGPT may run `Get-TermyloLatestError` in your **already-approved native session** to retrieve that last redacted error and diagnose it. It does not automatically upload errors or watch your terminal in the background. If the session is no longer approved, a new approval is required; an expired closed terminal is not silently reattached.
 
 You can optionally use the older granular queue controls below if you want to share a sequence of errors. Those controls must be typed locally:
 

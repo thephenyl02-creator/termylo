@@ -156,38 +156,15 @@ class NativeSession:
                 _terminate_tree(proc)
 
     def _check(self) -> None:
-        """Expire remote authority without automatically closing the owner's console.
-
-        The native console must ACK the local-only transition and dispose its
-        named pipe. If it cannot, fail closed by terminating the console.
-        An in-flight command is also terminated rather than left uncontrolled.
-        """
+        """Close expired consoles automatically and revoke remote authority."""
         processes = []
-        detached = None
         with self._lock:
             reason = self._expire_reason()
             if reason is not None:
-                expired = reason.startswith("Remote approval")
-                console = self._console_proc
-                if (expired and self._command_cancel is None and
-                        self._pipe_name and console is not None and console.poll() is None):
-                    detached = (self._pipe_name, console)
-                    self._close_locked(reason + " Remote access revoked; local PowerShell remains open.")
-                else:
-                    processes = self._close_locked(reason)
+                if reason.startswith("Remote approval"):
+                    reason += " Native PowerShell window closed; new approval required."
+                processes = self._close_locked(reason)
         self._stop(processes)
-        if detached is not None:
-            pipe, console = detached
-            try:
-                result = _native_exchange(
-                    pipe, "__TERMYLO_REVOKE_IPC__",
-                    time.monotonic() + 3, threading.Event(),
-                )
-                if result.get("exit_code") != 0:
-                    raise RuntimeError("Native console did not acknowledge revocation.")
-            except Exception:
-                # Do not leave a remotely reachable named pipe behind.
-                self._stop([console])
 
     def status(self) -> dict:
         self._check()

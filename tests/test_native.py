@@ -153,11 +153,11 @@ def test_absolute_max_enforced(monkeypatch):
     with manager._lock:
         manager._opened_at -= native.MAX_SESSION_SECONDS + 1
     assert manager.validate(sid)["status"] == "unavailable"
-    assert not terminal.stopped
-    assert "__TERMYLO_REVOKE_IPC__" in calls
+    assert terminal.stopped
+    assert "__TERMYLO_REVOKE_IPC__" not in calls
 
 
-def test_expiry_fails_closed_if_console_does_not_ack(monkeypatch):
+def test_expiry_closes_console_even_if_ipc_does_not_respond(monkeypatch):
     _, terminal, _ = configure(monkeypatch)
     manager = native.NativeSession()
     manager.start()
@@ -188,8 +188,8 @@ def test_expiry_boundary_and_session_id_revoked(monkeypatch):
     assert "four-hour maximum" in expired["reason"]
     assert expired["session_id"] is None
     assert manager.validate(sid)["status"] == "unavailable"
-    assert "__TERMYLO_REVOKE_IPC__" in calls
-    assert not terminal.stopped  # can still type locally after remote revoke
+    assert "__TERMYLO_REVOKE_IPC__" not in calls
+    assert terminal.stopped  # automatic close after expiry
 
 
 def fresh_restart_mocks(monkeypatch, exchange):

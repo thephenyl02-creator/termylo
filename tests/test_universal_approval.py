@@ -134,9 +134,8 @@ def test_global_expiry_invalidates_every_session_without_new_consent(monkeypatch
     for shell, sid in sessions:
         assert shell.validate(sid)["status"] == "unavailable"
     assert len(approvals) == 1
-    # Existing native windows are allowed to stay for local keyboard use
-    # after their named pipes are revoked.
-    assert all(not proc.stopped for proc in consoles)
+    # All expired project windows close rather than staying local-only.
+    assert all(proc.stopped for proc in consoles)
 
 
 def test_explicit_global_revoke_closes_all_windows(monkeypatch):
@@ -153,3 +152,26 @@ def test_explicit_global_revoke_closes_all_windows(monkeypatch):
     assert len(approvals) == 1
     assert all(proc.stopped for proc in consoles)
     assert all(item["status"] == "closed" for item in registry.list_status())
+
+def test_expiry_monitor_closes_idle_windows_without_status_poll(monkeypatch):
+    consoles, approvals, _ = fake_laptop(monkeypatch)
+    grant = universal_approval.UniversalApproval()
+    registry = ProjectSessions(approval=grant)
+    for name in ('a', 'b'):
+        _, shell, _ = registry.prepare(name)
+        shell.start()
+        wait_state(shell)
+    assert len(approvals) == 1
+    with grant._lock:
+        grant._opened_at -= 14401
+    end = time.monotonic() + 3
+    while not all(p.stopped for p in consoles) and time.monotonic() < end:
+        time.sleep(.02)
+    assert all(p.stopped for p in consoles)
+    assert all(x['status'] == 'closed' for x in registry.list_status())
+    _, new_shell, _ = registry.prepare('a')
+    new_shell.start()
+    assert wait_state(new_shell)['status'] == 'active'
+    assert len(approvals) == 2
+    assert len(consoles) == 3
+    assert consoles[-1].stopped is False
