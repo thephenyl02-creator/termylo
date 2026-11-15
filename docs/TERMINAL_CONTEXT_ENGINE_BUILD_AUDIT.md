@@ -27,8 +27,8 @@ Build: Termylo 0.5.0a1 (development; no installation or activation)
 
 - Existing Termylo regression suite: **146 passed**, 111.31 seconds, in a
   separately executed batch.
-- Terminal Context Engine suite: **26 passed, 1 skipped**, 9.23 seconds.
-- Combined count across the two verified test batches: **172 passed, 1 skipped**.
+- Terminal Context Engine suite: **27 passed, 1 skipped**, 9.23 seconds.
+- Combined count across the two verified test batches: **173 passed, 1 skipped**.
 - Python module compilation and PEP 621/TOML parse: passed.
 - Isolated MCP stdio handshake: the six tools are exposed; unauthorized calls
   fail closed without installing or launching an external executable.
@@ -70,3 +70,32 @@ Build: Termylo 0.5.0a1 (development; no installation or activation)
 2. Real Windows indexing and multimodal search-quality tests.
 3. Decide on installation/startup configuration.
 4. Plugin packaging, security review and submission.
+
+## Re-verification, November 15, 2026
+
+- Reviewed the committed Termylo local source and upstream DigUp CLI source,
+  including Sources/digup/main.swift and SearchService.swift.
+- Confirmed the upstream index, search-service JSONL, and reload protocols.
+  Found and fixed missing reload after a successful incremental index; a
+  fake-CLI regression test now verifies the open search process receives reload.
+- Re-ran the original tests in two safely timed batches: 64 + 82 = 146 passed.
+  Re-ran the context tests: 27 passed, 1 skipped (Windows symlink privilege).
+- Current adapter supports one upstream semantic model and one primary index
+  for each project, without voice, a new desktop UI or a second local port.
+- Upstream beta.3 documentation lists PDF, DOCX, PPTX, XLSX, photo, image,
+  screenshot, audio, and video content readers. Their Windows behavior has
+  NOT yet been tested on this machine.
+- The search CLI and EmbeddingGemma GGUF assets remain uninstalled. The
+  configured executable status checks only for the existence of a file;
+  the installer must enforce executable/model integrity and protocol version.
+- The index is refreshed on explicit request and when searching (120-second
+  minimum between automatic attempts), not from a continuous filesystem
+  watcher. This is a remaining implementation gap if near-real-time indexing
+  is required.
+- Selection references expire and are verified against content hash, stat,
+  location and project scope. Large files defer hashing until verification.
+- Real Windows end-to-end indexing, model accuracy, performance, filesystem
+  reparse-point handling and signed/pinned asset verification remain release
+  gates. Startup configuration and plugin submission were not attempted.
+- The active Termylo service is still running its old imported code; this
+  development branch was neither merged nor used to restart the service.

@@ -316,6 +316,11 @@ def _fake_cli_script(tmp_path):
         "print(json.dumps({'event':'ready'}),flush=True)\n"
         "for line in sys.stdin:\n"
         "    req=json.loads(line)\n"
+        "    if req.get('op')=='reload':\n"
+        "        marker=root/'reload_marker.txt'\n"
+        "        marker.write_text(str(int(marker.read_text())+1) if marker.exists() else '1')\n"
+        "        print(json.dumps({'id':req['id'],'ok':True,'vectors':12}),flush=True)\n"
+        "        continue\n"
         "    print('NOT JSON',flush=True)\n"
         "    print(json.dumps({'id':'unrelated-request','hits':[]}),flush=True)\n"
         "    files=list(root.rglob('*.pdf'))\n"
@@ -577,3 +582,25 @@ def test_index_cancels_on_disable_and_approval_expiry(engine, tmp_path, monkeypa
     proc.wait(timeout=5)
     assert proc.poll() is not None
     assert tce.index("alpha")["status"] == "approval_required"
+def test_index_refresh_reloads_active_search_service(engine, tmp_path, monkeypatch):
+    tce, _, _ = engine
+    root = tmp_path / "approved"
+    root.mkdir()
+    (root / "proposal.pdf").write_text("business proposal")
+    configured(tce, root)
+    _use_fake_cli(monkeypatch, _fake_cli_script(tmp_path))
+    assert tce.search("alpha", "proposal")["status"] == "ok"
+    project = tce._project("alpha")[2]
+    marker = root / "reload_marker.txt"
+    # An explicit subsequent indexing pass must refresh the already open searcher.
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and project._index is not None:
+        time.sleep(.05)
+    marker.unlink(missing_ok=True)
+    assert tce.index("alpha")["status"] == "indexing"
+    deadline = time.monotonic() + 7
+    while time.monotonic() < deadline and not marker.exists():
+        time.sleep(.05)
+    assert marker.exists(), "Updated search index was not reloaded"
+    assert tce.status("alpha")["service_running"]
+    assert tce.search("alpha", "proposal")["status"] == "ok"

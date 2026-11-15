@@ -66,3 +66,4 @@ This is an optional Termylo capability, not a replacement for native PowerShell.
 
 Upstream search engine: https://github.com/ARahim3/DigUp (MIT).
 Chameleon integration reference: https://github.com/SarthakPattnaik1/Chameleon/pull/7
+\nIndex refresh: a successful indexing run reloads any active search process.\n

@@ -320,8 +320,21 @@ class ContextProject:
                             f"Indexer ended with code {code}.")
                         self._index = None
                         self._index_job = None
+                        if status == "error":
+                            self._index_last = 0.0  # Retry after failed indexing.
                     if job is not None:
                         job.close()
+                    # The search service retains vectors until explicitly reloaded.
+                    # A successful incremental index must become visible immediately.
+                    if (status == "ready" and grant_valid()
+                            and self._process is not None
+                            and self._process.poll() is None):
+                        try:
+                            self.request({"op": "reload"}, roots)
+                        except ContextError as exc:
+                            # A failed reload closes the service in request().
+                            # The next search opens a new copy of the index.
+                            self._index_error = "Search refresh failed; will restart: " + str(exc)[:120]
             threading.Thread(target=watch, daemon=True,
                              name="termylo-context-index").start()
             return {"status": "indexing"}
