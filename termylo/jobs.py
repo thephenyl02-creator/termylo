@@ -1,6 +1,7 @@
 """Project-scoped FIFO command queues with asynchronous Windows approval/execution."""
 from __future__ import annotations
 import os
+import sqlite3
 import secrets
 import threading
 import time
@@ -8,6 +9,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable
 from .runner import run_command, validate
+from .journal import JobJournal
 
 TERMINAL = frozenset({"completed", "denied", "cancelled", "timeout", "rejected", "unavailable", "error"})
 RETAIN_SECONDS = 900
@@ -23,13 +25,31 @@ class Job:
     cancel: threading.Event = field(default_factory=threading.Event)
 
 class JobManager:
-    def __init__(self, runner: Callable[..., dict] = run_command):
+    def __init__(self, runner: Callable[..., dict] = run_command, *,
+                 journal: JobJournal | None = None):
         self._runner = runner
+        self.journal = journal
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
         self._queues: dict[str, deque] = {}
         self._workers: set[str] = set()
         self._running: dict[str, str] = {}
+
+    def _remember(self, job: Job) -> None:
+        if self.journal is not None:
+            try:
+                code = job.result.get("exit_code") if isinstance(job.result, dict) else None
+                self.journal.record(job.id, job.project_id, job.status, exit_code=code)
+            except (OSError, sqlite3.Error):
+                # A disk failure must not change command execution or authorization.
+                pass
+
+    def recent(self, project_id: str | None = None, limit: int = 20) -> list[dict]:
+        if self.journal is None:
+            with self._lock:
+                return [{"job_id": j.id, "project_id": j.project_id, "status": j.status}
+                        for j in list(self._jobs.values())[-max(1,min(limit,100)):]]
+        return self.journal.recent(project_id, limit)
 
     def _prune(self) -> None:
         now = time.monotonic()
@@ -81,6 +101,7 @@ class JobManager:
                     if not queue:
                         self._queues.pop(project_id, None)
                     return {"status": "error", "error": "Could not start the local command worker."}
+        self._remember(job)
         if queued:
             return {"status": "queued", "job_id": job.id, "queue_position": ahead + 1,
                     "message": "Command queued for this project; use powershell_result(job_id)."}
@@ -104,6 +125,7 @@ class JobManager:
                     continue
                 self._running[project_id] = job.id
                 job.status = "running"
+                self._remember(job)
             try:
                 self._run(job, command, timeout_seconds, runner)
             finally:
@@ -121,13 +143,15 @@ class JobManager:
         with self._lock:
             job.result = result
             job.status = result["status"]
+            self._remember(job)
 
     def result(self, job_id: str) -> dict:
         with self._lock:
             self._prune()
             job = self._jobs.get(job_id)
             if job is None:
-                return {"status": "not_found", "error": "Unknown or expired job ID."}
+                past = self.journal.get(job_id) if self.journal is not None else None
+                return past if past is not None else {"status": "not_found", "error": "Unknown or expired job ID."}
             if job.result is None:
                 if job.status == "queued":
                     queue = self._queues.get(job.project_id, ())
@@ -151,4 +175,5 @@ class JobManager:
             if job.status == "queued":
                 job.result = {"status": "cancelled"}
                 job.status = "cancelled"
+                self._remember(job)
             return {"status": "cancellation_requested", "job_id": job.id}

@@ -25,6 +25,27 @@ Termylo's default workflow: **AI requests a command → you approve ONE universa
 
 The two-step request/result process prevents MCP timeouts while you read the approval window. One command per project can be active at a time; different projects execute independently. Finished results expire after 15 minutes.
 
+## Managed processes and job recovery (v0.4.9)
+
+Termylo now offers optional background PowerShell under the same current
+locally approved project session; it does not share interactive shell variables.
+Use `start_managed_process` for long-running commands and
+`managed_process_status`, `list_managed_processes`, and
+`stop_managed_process` to inspect and stop them. Startup requires active
+approval. Each process is time-limited, bounded by the original approval
+lease, and contained in a Windows kill-on-close Job Object. Output tails
+are limited to 16 KiB per stream.
+
+`recent_jobs` reads metadata-only SQLite history from
+`%LOCALAPPDATA%\Termylo\jobs.sqlite3`. The journal never stores
+command text or command output. After a restart, completed jobs retain
+status/exit codes, but not full stdout/stderr. Previously running jobs
+report `outcome_unknown`: verify side effects before manually rerunning.
+No automatic execution replay occurs.
+
+The existing four-hour no-idle approval and native project sessions
+remain unchanged. DigUp is not included in this release.
+
 ## Native authorization policy (four-hour default)
 
 - **ONE explicit local approval covers ALL native project terminals**. The default `execute_powershell` tool routes to its own persistent project console without further approval popups while the shared lease is active.
